@@ -16,7 +16,10 @@ name = "onechat_sdk"
 path = "src/lib.rs"
 
 [dependencies]
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3", default-features = false, features = [
+    "async-await",
+    "std",
+] }
 http = "1"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-rustls = { version = "0.27", default-features = false, features = [

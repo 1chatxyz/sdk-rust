@@ -27,15 +27,21 @@ let client = Client::try_new(Config {
 // Or: Client::from_env()?
 ```
 
-**Milestone status:** M1 = construct + `reply_group` / `send_group_text` / `set_typing`.  
-- **M2:** `subscribe_groups` with reconnect (listen → reply)  
-- **M6:** full agent-handoff docs + copyable examples  
-
-Target listen→reply shape (M2+):
+**Milestone status:** M2 = listen + reply with reconnect.  
+- **M3+:** DMs, media, reactions  
+- **M6:** full agent-handoff docs pack  
 
 ```rust
-let mut events = client.subscribe_groups().await?;
-while let Some(event) = events.next().await { /* reply_group */ }
+use futures_util::StreamExt;
+use onechat_sdk::{Client, IncomingEvent, SubscribeOptions};
+
+let client = Client::from_env()?;
+let mut events = client.subscribe_groups(SubscribeOptions::new()).await?;
+while let Some(event) = events.next().await {
+    if let IncomingEvent::GroupMessage(msg) = event? {
+        client.reply_group(msg.group_id, "hello").await?;
+    }
+}
 ```
 
 ## Repository layout

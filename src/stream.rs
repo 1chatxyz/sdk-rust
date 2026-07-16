@@ -1,0 +1,302 @@
+//! Group stream with resume + reconnect.
+
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+
+use futures_util::Stream;
+use tokio::sync::mpsc;
+use tokio::time::timeout;
+use tonic::service::interceptor::InterceptedService;
+use tonic_web::GrpcWebClientLayer;
+use tower::ServiceBuilder;
+use tracing::{debug, warn};
+
+use crate::client::{Client, HttpClient};
+use crate::error::{Error, Result};
+use crate::pb::genjutsu::myconversation::v1::StreamChatGroupsRequest;
+use crate::pb::genjutsu::myconversation::v1::chat_group_stream_event::Item as StreamItem;
+use crate::pb::genjutsu::myconversation::v1::my_conversation_client::MyConversationClient;
+use crate::transport::AuthInterceptor;
+use crate::types::{IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions};
+
+const DEFAULT_IDLE: Duration = Duration::from_secs(90);
+const DEFAULT_MAX_AGE: Duration = Duration::from_secs(25 * 60);
+const MIN_RECONNECT: Duration = Duration::from_secs(2);
+const MAX_RECONNECT: Duration = Duration::from_secs(60);
+
+type GrpcWebService = tonic_web::GrpcWebClientService<HttpClient>;
+type AuthedService = InterceptedService<GrpcWebService, AuthInterceptor>;
+
+/// Compute exponential reconnect delay (2s … 60s).
+pub fn compute_reconnect_delay(attempt: u32) -> Duration {
+    let exp = attempt.min(16);
+    let ms = MIN_RECONNECT.as_millis() * (1u128 << exp);
+    Duration::from_millis(ms.min(MAX_RECONNECT.as_millis()) as u64)
+}
+
+/// Async stream of [`IncomingEvent`] with automatic reconnect.
+pub struct GroupEventStream {
+    rx: mpsc::Receiver<Result<IncomingEvent>>,
+    join: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Stream for GroupEventStream {
+    type Item = Result<IncomingEvent>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.rx.poll_recv(cx)
+    }
+}
+
+impl Drop for GroupEventStream {
+    fn drop(&mut self) {
+        if let Some(join) = self.join.take() {
+            join.abort();
+        }
+    }
+}
+
+impl Client {
+    fn stream_rpc(&self) -> MyConversationClient<AuthedService> {
+        let svc = ServiceBuilder::new()
+            .layer(GrpcWebClientLayer::new())
+            .service(self.stream_handle().http.clone());
+        let svc = InterceptedService::new(svc, self.stream_handle().auth.clone());
+        MyConversationClient::with_origin(svc, self.stream_handle().base_uri.clone())
+    }
+
+    /// Subscribe to chat-group events. Reconnects on disconnect / idle / max age.
+    ///
+    /// Pings are consumed internally (they reset the idle timer) and never yielded.
+    pub async fn subscribe_groups(&self, options: SubscribeOptions) -> Result<GroupEventStream> {
+        let (tx, rx) = mpsc::channel::<Result<IncomingEvent>>(64);
+        let client = self.clone();
+        let join = tokio::spawn(async move {
+            run_group_stream_loop(client, options, tx).await;
+        });
+        Ok(GroupEventStream {
+            rx,
+            join: Some(join),
+        })
+    }
+
+    /// Convenience loop: invoke `handler` for each group message until the stream ends.
+    pub async fn run_group_bot<F, Fut>(&self, mut handler: F) -> Result<()>
+    where
+        F: FnMut(Client, IncomingMessage) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        use futures_util::StreamExt;
+        let mut events = self.subscribe_groups(SubscribeOptions::new()).await?;
+        while let Some(item) = events.next().await {
+            match item? {
+                IncomingEvent::GroupMessage(msg) => {
+                    handler(self.clone(), msg).await?;
+                }
+                IncomingEvent::Typing(_) => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+async fn run_group_stream_loop(
+    client: Client,
+    options: SubscribeOptions,
+    tx: mpsc::Sender<Result<IncomingEvent>>,
+) {
+    let mut resume_after_message_id: i64 = 0;
+    let mut reconnect_attempt: u32 = 0;
+
+    loop {
+        if tx.is_closed() {
+            break;
+        }
+
+        let started = Instant::now();
+        let mut last_event = Instant::now();
+        debug!(
+            resume_after_message_id,
+            reconnect_attempt, "opening StreamChatGroups"
+        );
+
+        let outcome = run_one_stream_session(
+            &client,
+            &options,
+            &tx,
+            &mut resume_after_message_id,
+            &mut last_event,
+            started,
+        )
+        .await;
+
+        if tx.is_closed() {
+            break;
+        }
+
+        match outcome {
+            SessionOutcome::EndedClean => {
+                reconnect_attempt = 0;
+            }
+            SessionOutcome::Transient => {
+                let delay = compute_reconnect_delay(reconnect_attempt);
+                warn!(?delay, reconnect_attempt, "stream reconnecting");
+                reconnect_attempt = reconnect_attempt.saturating_add(1);
+                tokio::time::sleep(delay).await;
+            }
+            SessionOutcome::Fatal(err) => {
+                let _ = tx.send(Err(err)).await;
+                break;
+            }
+        }
+    }
+}
+
+enum SessionOutcome {
+    EndedClean,
+    Transient,
+    Fatal(Error),
+}
+
+async fn run_one_stream_session(
+    client: &Client,
+    options: &SubscribeOptions,
+    tx: &mpsc::Sender<Result<IncomingEvent>>,
+    resume_after_message_id: &mut i64,
+    last_event: &mut Instant,
+    started: Instant,
+) -> SessionOutcome {
+    let mut rpc = client.stream_rpc();
+    let request = StreamChatGroupsRequest {
+        resume_after_message_id: *resume_after_message_id,
+        resume_after_event_id: 0,
+    };
+    let mut stream = match rpc.stream_chat_groups(request).await {
+        Ok(s) => s.into_inner(),
+        Err(status) => {
+            return SessionOutcome::Fatal(status.into());
+        }
+    };
+
+    loop {
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            debug!("stream max age reached; reconnecting");
+            return SessionOutcome::Transient;
+        }
+
+        let wait = DEFAULT_IDLE.saturating_sub(last_event.elapsed());
+        let next = timeout(wait, stream.message()).await;
+        match next {
+            Err(_) => {
+                debug!("stream idle timeout; reconnecting");
+                return SessionOutcome::Transient;
+            }
+            Ok(Ok(None)) => {
+                debug!("stream ended by server");
+                return SessionOutcome::EndedClean;
+            }
+            Ok(Err(status)) => {
+                warn!(%status, "stream error");
+                return SessionOutcome::Transient;
+            }
+            Ok(Ok(Some(event))) => {
+                *last_event = Instant::now();
+                match event.item {
+                    Some(StreamItem::Ping(_)) => {
+                        // Keepalive only — do not yield.
+                    }
+                    Some(StreamItem::Message(msg)) => {
+                        if msg.id > *resume_after_message_id {
+                            *resume_after_message_id = msg.id;
+                        }
+                        if let Some(incoming) = map_message(msg, client, options) {
+                            if tx
+                                .send(Ok(IncomingEvent::GroupMessage(incoming)))
+                                .await
+                                .is_err()
+                            {
+                                return SessionOutcome::EndedClean;
+                            }
+                        }
+                    }
+                    Some(StreamItem::Typing(t)) => {
+                        let incoming = IncomingTyping {
+                            group_id: t.group_id,
+                            user_id: t.user_id,
+                            username: t.username,
+                            typing: t.typing,
+                        };
+                        if tx.send(Ok(IncomingEvent::Typing(incoming))).await.is_err() {
+                            return SessionOutcome::EndedClean;
+                        }
+                    }
+                    _ => {
+                        // Forward-compatible: ignore other variants.
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn map_message(
+    msg: crate::pb::genjutsu::myconversation::v1::ChatGroupMessageInfo,
+    client: &Client,
+    options: &SubscribeOptions,
+) -> Option<IncomingMessage> {
+    if let Some(allow) = &options.allowlist {
+        if !allow.contains(&msg.group_id) {
+            return None;
+        }
+    }
+
+    if options.ignore_self {
+        if let Some(self_id) = client.config().user_id.as_deref() {
+            if let Ok(self_id) = self_id.parse::<i64>() {
+                if self_id == msg.sender_user_id {
+                    return None;
+                }
+            }
+        }
+    }
+
+    if options.require_mention {
+        let cfg = client.config();
+        let by_id = cfg
+            .user_id
+            .as_deref()
+            .and_then(|s| s.parse::<i64>().ok())
+            .is_some_and(|id| msg.mentioned_user_ids.contains(&id));
+        let by_name = cfg
+            .username
+            .as_deref()
+            .is_some_and(|u| !u.is_empty() && msg.content.contains(u));
+        if !by_id && !by_name {
+            return None;
+        }
+    }
+
+    Some(IncomingMessage {
+        id: msg.id,
+        group_id: msg.group_id,
+        sender_user_id: msg.sender_user_id,
+        sender_username: msg.sender_username,
+        text: msg.content,
+        mentioned_user_ids: msg.mentioned_user_ids,
+        images: msg.images,
+        files: msg.files,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_grows_and_caps() {
+        assert_eq!(compute_reconnect_delay(0), Duration::from_secs(2));
+        assert_eq!(compute_reconnect_delay(1), Duration::from_secs(4));
+        assert_eq!(compute_reconnect_delay(10), Duration::from_secs(60));
+    }
+}
