@@ -46,8 +46,7 @@ while let Some(event) = events.next().await { /* reply_group */ }
 | `src/` | SDK library (`onechat_sdk`) |
 | `proto/` | Protobuf sources + vendored `google/api`, `validate` |
 | `build.rs` | `tonic-build` client codegen into `OUT_DIR` (`src/pb.rs` includes it) |
-| `reference/typescript` | OpenClaw-oriented reference |
-| `reference/python` | Hermes-oriented reference |
+| `reference/` (gitignored) | Local-only OpenClaw/Hermes samples — do not commit or push |
 | `.cursor/plans/2_roadmap.md` | Milestones M0–M7 |
 
 ## GitHub identity

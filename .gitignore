@@ -20,7 +20,5 @@ target
 .DS_Store
 .idea/
 
-# Reference trees (keep sources, ignore build artifacts)
-reference/**/node_modules/
-reference/**/dist/
-reference/**/target/
+# Local-only references (do not commit or push)
+reference/
