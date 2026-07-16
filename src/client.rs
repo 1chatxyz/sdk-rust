@@ -1,4 +1,4 @@
-//! High-level 1Chat client (M0: construction + transport handles only).
+//! High-level 1Chat client.
 //!
 //! The SDK always speaks **gRPC-Web** (HTTP/1.1) to `API_1CHAT_URL`, which is
 //! expected to be the Envoy gateway. Plain `http://` URLs are still framed as
@@ -68,8 +68,8 @@ impl fmt::Debug for StreamHandle {
 
 /// 1Chat SDK client.
 ///
-/// M0 provides construction and dual gRPC-Web HTTP handles. Reply / subscribe
-/// APIs arrive in later milestones.
+/// Construct with [`Client::from_env`] or [`Client::try_new`], then use the
+/// group / DM / media / reaction methods on this type.
 #[derive(Clone)]
 pub struct Client {
     config: Arc<Config>,

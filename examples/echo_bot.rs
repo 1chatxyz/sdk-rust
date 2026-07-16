@@ -33,6 +33,7 @@ async fn main() -> onechat_sdk::Result<()> {
                     eprintln!("reply failed: {err}");
                 }
                 let _ = client.set_typing(msg.group_id, false).await;
+                let _ = client.react_group_message(msg.id, "👀", false).await;
             }
             IncomingEvent::Typing(_)
             | IncomingEvent::DirectMessage(_)
