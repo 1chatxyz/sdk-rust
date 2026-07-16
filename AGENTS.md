@@ -50,6 +50,14 @@ while let Some(event) = events.next().await { /* reply_group */ }
 | `reference/python` | Hermes-oriented reference |
 | `.cursor/plans/2_roadmap.md` | Milestones M0–M7 |
 
+## GitHub identity
+
+Use the **1chatxyz** account only (not personal accounts such as `tiennv147`):
+
+- Credentials file: `~/.git-credentials-1chatxyz`
+- Local: `credential.helper=store --file=$HOME/.git-credentials-1chatxyz`, `user.name=1chatxyz`
+- `gh` commands: export `GH_TOKEN` from that file’s GitHub password/token
+
 ## Commands (run from repo root)
 
 ```bash

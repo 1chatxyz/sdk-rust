@@ -7,6 +7,14 @@ alwaysApply: true
 
 Follow these steps for **every non-trivial change** in this repository:
 
+## 0. GitHub identity (required)
+
+- Use the **1chatxyz** GitHub account for all git/`gh` work on this repo. **Do not use `tiennv147`.**
+- Local git credentials: `~/.git-credentials-1chatxyz` via
+  `git config --local credential.helper 'store --file=$HOME/.git-credentials-1chatxyz'`
+- Local author: `user.name=1chatxyz`, `user.email=1chatxyz@gmail.com`
+- For `gh` (PR/API/merge), set `GH_TOKEN` from that credentials file (password field) so the CLI acts as `1chatxyz`, not another logged-in account.
+
 ## 1. Branch + PR
 
 - Work on a dedicated feature branch off `main`. Use the `cursor/<short-kebab-description>` prefix when creating branches autonomously.
