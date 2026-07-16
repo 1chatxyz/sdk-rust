@@ -84,6 +84,7 @@ impl fmt::Debug for Client {
 impl Client {
     /// Build a client from [`Config`] without dialing the network.
     pub fn try_new(config: Config) -> Result<Self> {
+        let config = config.normalized();
         config.validate()?;
         let base_url = normalize_api_url(&config.api_url)?;
         let base_uri: Uri = base_url

@@ -32,6 +32,22 @@ impl fmt::Debug for Config {
 }
 
 impl Config {
+    /// Trim whitespace on string fields (safe for `.env` copy/paste).
+    pub fn normalized(mut self) -> Self {
+        self.api_url = self.api_url.trim().to_string();
+        self.tenant_id = self.tenant_id.trim().to_string();
+        self.bot_token = self.bot_token.trim().to_string();
+        self.user_id = self
+            .user_id
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        self.username = self
+            .username
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        self
+    }
+
     /// Validate required fields.
     pub fn validate(&self) -> Result<()> {
         if self.api_url.trim().is_empty() {
@@ -48,28 +64,21 @@ impl Config {
 
     /// Load from `API_1CHAT_URL`, `TENANT_ID`, and `BOT_TOKEN`.
     pub fn from_env() -> Result<Self> {
-        let api_url = std::env::var("API_1CHAT_URL")
-            .map_err(|_| Error::Config("missing environment variable API_1CHAT_URL".into()))?;
-        let tenant_id = std::env::var("TENANT_ID")
-            .map_err(|_| Error::Config("missing environment variable TENANT_ID".into()))?;
-        let bot_token = std::env::var("BOT_TOKEN")
-            .map_err(|_| Error::Config("missing environment variable BOT_TOKEN".into()))?;
-        let user_id = std::env::var("ONECHAT_USER_ID")
-            .ok()
-            .filter(|s| !s.trim().is_empty());
-        let username = std::env::var("ONECHAT_USERNAME")
-            .ok()
-            .filter(|s| !s.trim().is_empty());
         let config = Self {
-            api_url,
-            tenant_id,
-            bot_token,
-            user_id,
-            username,
-        };
+            api_url: require_env("API_1CHAT_URL")?,
+            tenant_id: require_env("TENANT_ID")?,
+            bot_token: require_env("BOT_TOKEN")?,
+            user_id: std::env::var("ONECHAT_USER_ID").ok(),
+            username: std::env::var("ONECHAT_USERNAME").ok(),
+        }
+        .normalized();
         config.validate()?;
         Ok(config)
     }
+}
+
+fn require_env(key: &str) -> Result<String> {
+    std::env::var(key).map_err(|_| Error::Config(format!("missing environment variable {key}")))
 }
 
 #[cfg(test)]
@@ -102,5 +111,22 @@ mod tests {
         let rendered = format!("{cfg:?}");
         assert!(!rendered.contains("super-secret"));
         assert!(rendered.contains("[redacted]"));
+    }
+
+    #[test]
+    fn normalized_trims_whitespace() {
+        let cfg = Config {
+            api_url: "  https://gw.example  ".into(),
+            tenant_id: " tenant \n".into(),
+            bot_token: " tok ".into(),
+            user_id: Some(" 42 ".into()),
+            username: Some(" bot ".into()),
+        }
+        .normalized();
+        assert_eq!(cfg.api_url, "https://gw.example");
+        assert_eq!(cfg.tenant_id, "tenant");
+        assert_eq!(cfg.bot_token, "tok");
+        assert_eq!(cfg.user_id.as_deref(), Some("42"));
+        assert_eq!(cfg.username.as_deref(), Some("bot"));
     }
 }
