@@ -64,7 +64,7 @@ cargo run --example send_group_message -- "hello"   # needs CHANNEL_ID_TEST
 
 ## Develop
 
-Requires [Rust](https://rustup.rs/) 1.85+ and [`protoc`](https://grpc.io/docs/protoc-installation/).
+Requires [Rust](https://rustup.rs/) 1.85+ (pin: 1.97 via `rust-toolchain.toml`) and [`protoc`](https://grpc.io/docs/protoc-installation/).
 
 ```bash
 cargo test
