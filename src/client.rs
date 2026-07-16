@@ -1,5 +1,10 @@
 //! High-level 1Chat client (M0: construction + transport handles only).
+//!
+//! The SDK always speaks **gRPC-Web** (HTTP/1.1) to `API_1CHAT_URL`, which is
+//! expected to be the Envoy gateway. Plain `http://` URLs are still framed as
+//! gRPC-Web (not native gRPC).
 
+use std::fmt;
 use std::sync::Arc;
 
 use http::Uri;
@@ -15,7 +20,7 @@ use crate::transport::{AuthInterceptor, normalize_api_url};
 type HttpClient = HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, Body>;
 
 /// Opaque gRPC-Web handle used for unary RPCs (M1+).
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[allow(dead_code)] // Fields consumed when M1 attaches tonic clients.
 pub(crate) struct UnaryHandle {
     pub(crate) base_uri: Uri,
@@ -23,11 +28,20 @@ pub(crate) struct UnaryHandle {
     pub(crate) auth: AuthInterceptor,
 }
 
+impl fmt::Debug for UnaryHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UnaryHandle")
+            .field("base_uri", &self.base_uri)
+            .field("auth", &self.auth)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Opaque gRPC-Web handle used for server streams (M2+).
 ///
 /// Kept separate from [`UnaryHandle`] so long-lived streams do not share a
 /// connection with unary traffic (parity with the TypeScript reference).
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[allow(dead_code)] // Fields consumed when M2 attaches stream clients.
 pub(crate) struct StreamHandle {
     pub(crate) base_uri: Uri,
@@ -35,16 +49,36 @@ pub(crate) struct StreamHandle {
     pub(crate) auth: AuthInterceptor,
 }
 
+impl fmt::Debug for StreamHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StreamHandle")
+            .field("base_uri", &self.base_uri)
+            .field("auth", &self.auth)
+            .finish_non_exhaustive()
+    }
+}
+
 /// 1Chat SDK client.
 ///
 /// M0 provides construction and dual gRPC-Web HTTP handles. Reply / subscribe
 /// APIs arrive in later milestones.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Client {
     config: Arc<Config>,
     base_url: String,
     unary: UnaryHandle,
     stream: StreamHandle,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("config", &self.config)
+            .field("base_url", &self.base_url)
+            .field("unary", &self.unary)
+            .field("stream", &self.stream)
+            .finish()
+    }
 }
 
 impl Client {

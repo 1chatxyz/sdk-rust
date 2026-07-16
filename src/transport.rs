@@ -1,5 +1,7 @@
 //! URL normalization and auth metadata for gRPC-Web.
 
+use std::fmt;
+
 use tonic::metadata::{AsciiMetadataValue, MetadataMap};
 
 use crate::error::{Error, Result};
@@ -54,10 +56,19 @@ pub(crate) fn auth_metadata(tenant_id: &str, bot_token: &str) -> Result<Metadata
 }
 
 /// Auth interceptor attached to every tonic call.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AuthInterceptor {
     tenant_id: String,
     bot_token: String,
+}
+
+impl fmt::Debug for AuthInterceptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthInterceptor")
+            .field("tenant_id", &self.tenant_id)
+            .field("bot_token", &"[redacted]")
+            .finish()
+    }
 }
 
 impl AuthInterceptor {

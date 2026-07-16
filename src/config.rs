@@ -1,9 +1,11 @@
 //! Client configuration.
 
+use std::fmt;
+
 use crate::error::{Error, Result};
 
 /// Configuration for connecting to the 1Chat Envoy gateway.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Config {
     /// Envoy gateway base URL (`API_1CHAT_URL`). Already the gateway; no proxy needed.
     pub api_url: String,
@@ -15,6 +17,18 @@ pub struct Config {
     pub user_id: Option<String>,
     /// Optional bot username (mention matching).
     pub username: Option<String>,
+}
+
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("api_url", &self.api_url)
+            .field("tenant_id", &self.tenant_id)
+            .field("bot_token", &"[redacted]")
+            .field("user_id", &self.user_id)
+            .field("username", &self.username)
+            .finish()
+    }
 }
 
 impl Config {
@@ -74,5 +88,19 @@ mod tests {
         .validate()
         .unwrap_err();
         assert!(matches!(err, Error::Config(_)));
+    }
+
+    #[test]
+    fn debug_redacts_bot_token() {
+        let cfg = Config {
+            api_url: "https://gw.example".into(),
+            tenant_id: "t".into(),
+            bot_token: "super-secret".into(),
+            user_id: None,
+            username: None,
+        };
+        let rendered = format!("{cfg:?}");
+        assert!(!rendered.contains("super-secret"));
+        assert!(rendered.contains("[redacted]"));
     }
 }
