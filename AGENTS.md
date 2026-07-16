@@ -153,7 +153,7 @@ cargo test
 cargo clean -p onechat-sdk && cargo build   # regen protos
 ```
 
-Requires Rust **1.85+** and [`protoc`](https://grpc.io/docs/protoc-installation/).
+Requires Rust **1.85+** (toolchain pin: **1.97** via `rust-toolchain.toml`) and [`protoc`](https://grpc.io/docs/protoc-installation/).
 
 ## Proto regeneration
 

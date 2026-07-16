@@ -18,5 +18,11 @@ pub enum Error {
 
     /// gRPC status from the server.
     #[error(transparent)]
-    Status(#[from] tonic::Status),
+    Status(Box<tonic::Status>),
+}
+
+impl From<tonic::Status> for Error {
+    fn from(status: tonic::Status) -> Self {
+        Self::Status(Box::new(status))
+    }
 }

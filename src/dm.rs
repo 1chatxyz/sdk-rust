@@ -197,15 +197,12 @@ async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEven
                             }
                         }
                         Some(DmStreamItem::Typing(t)) => {
-                            if tx
-                                .send(Ok(IncomingEvent::DirectTyping {
-                                    thread_id: t.thread_id,
-                                    user_id: t.user_id,
-                                    typing: t.typing,
-                                }))
-                                .await
-                                .is_err()
-                            {
+                            let typing = IncomingEvent::DirectTyping {
+                                thread_id: t.thread_id,
+                                user_id: t.user_id,
+                                typing: t.typing,
+                            };
+                            if tx.send(Ok(typing)).await.is_err() {
                                 return;
                             }
                         }
