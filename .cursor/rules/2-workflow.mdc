@@ -1,0 +1,43 @@
+---
+description: Default workflow for 1Chat Rust SDK changes
+alwaysApply: true
+---
+
+# Default workflow
+
+Follow these steps for **every non-trivial change** in this repository:
+
+## 0. GitHub identity (required)
+
+- Use the **1chatxyz** GitHub account for all git/`gh` work on this repo. **Do not use `tiennv147`.**
+- Local git credentials: `~/.git-credentials-1chatxyz` via
+  `git config --local credential.helper 'store --file=$HOME/.git-credentials-1chatxyz'`
+- Local author: `user.name=1chatxyz`, `user.email=1chatxyz@gmail.com`
+- For `gh` (PR/API/merge), set `GH_TOKEN` from that credentials file (password field) so the CLI acts as `1chatxyz`, not another logged-in account.
+
+## 1. Branch + PR
+
+- Work on a dedicated feature branch off `main`. Use the `cursor/<short-kebab-description>` prefix when creating branches autonomously.
+- After implementing, commit, push, and open a pull request against `main`.
+- PR description must include **What**, **How**, **Follow-ups**, and **Testing** (exact `cargo` commands and results).
+
+## 2. Testing is mandatory
+
+- Run before finishing a change:
+  - `cargo fmt --check`
+  - `cargo clippy --all-targets -- -D warnings`
+  - `cargo test`
+- Proto codegen needs `protoc` on `PATH`. Regenerate with `cargo clean -p onechat-sdk && cargo build`.
+- Never commit secrets (`.env.local`, tokens) or temporary debug code.
+- Keep `AGENTS.md` and `.env.example` in sync when behavior or configuration changes.
+
+## 3. Bugbot follow-up
+
+- Never merge a PR before Bugbot has reviewed it.
+- Address or explicitly justify every Bugbot comment; iterate until clear.
+- Only then merge and continue.
+
+## 4. Style
+
+- Follow `.cursor/rules/4-rust.mdc` (official Rust Style Guide; default rustfmt; clippy `-D warnings`).
+- Commits and PR titles follow `.cursor/rules/3-commit-messages.mdc` (semantic commits).

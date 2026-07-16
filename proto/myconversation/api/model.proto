@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package genjutsu.myconversation.model.v1;
+
+option go_package = "gitlab.genjutsu.ai/marketplace/myconversation/api/v1/model;model";
+
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_FACEBOOK    = 1;
+  PLATFORM_INSTAGRAM   = 2;
+  PLATFORM_WHATSAPP    = 3;
+  PLATFORM_EXTERNAL    = 4;
+  PLATFORM_TELEGRAM    = 5;
+}
+
+enum Sender {
+  SENDER_UNSPECIFIED = 0;
+  SENDER_CUSTOMER    = 1;
+  SENDER_SALES       = 2;
+  SENDER_BOT         = 3;
+}
+
+enum Method {
+  METHOD_UNSPECIFIED = 0;
+  METHOD_FACEBOOK    = 1;
+  METHOD_TELEGRAM    = 2;
+  METHOD_BOT         = 3;
+  METHOD_EXTERNAL    = 4;
+}
+
+enum MessageStatus {
+  MESSAGE_STATUS_UNSPECIFIED = 0;
+  MESSAGE_STATUS_PENDING     = 1;
+  MESSAGE_STATUS_SENT        = 2;
+  MESSAGE_STATUS_FAILED      = 3;
+}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_ACTIVE      = 1;
+  STATUS_INACTIVE    = 2;
+}
+
+enum Mode {
+  MODE_UNSPECIFIED   = 0;
+  MODE_AUTO          = 1;  // LLM auto-reply to customer (OpenRouter + myknowledge RAG)
+  MODE_TELEGRAM      = 2;  // Mirror inbound to Telegram only
+  MODE_AUTO_TELEGRAM = 3;  // LLM auto-reply + Messenger, then one Telegram summary (replyable)
+  MODE_AI_RECOMMEND  = 4;  // RAG + OpenRouter reply suggestions for operators (external-first)
+}
+
+// Help-desk lifecycle for a conversation thread. Zero value is OPEN (default for new threads).
+enum ConversationState {
+  CONVERSATION_STATE_OPEN        = 0;
+  CONVERSATION_STATE_IN_PROGRESS = 1;
+  CONVERSATION_STATE_PENDING     = 2;
+  CONVERSATION_STATE_RESOLVED    = 3;
+}
+
+enum ScheduledMessageStatus {
+  SCHEDULED_MESSAGE_STATUS_UNSPECIFIED = 0;
+  SCHEDULED_MESSAGE_STATUS_PENDING     = 1;
+  SCHEDULED_MESSAGE_STATUS_SENT        = 2;
+  SCHEDULED_MESSAGE_STATUS_FAILED      = 3;
+  SCHEDULED_MESSAGE_STATUS_CANCELLED   = 4;
+  SCHEDULED_MESSAGE_STATUS_PARTIAL     = 5;  // at least one delivery failed while others may have succeeded
+}
+
+enum ScheduledDeliveryStatus {
+  SCHEDULED_DELIVERY_STATUS_UNSPECIFIED = 0;
+  SCHEDULED_DELIVERY_STATUS_PENDING     = 1;
+  SCHEDULED_DELIVERY_STATUS_SENT        = 2;
+  SCHEDULED_DELIVERY_STATUS_FAILED      = 3;
+}
+
+// Classified outcome for scheduled Messenger delivery failures (sales-facing taxonomy).
+enum DeliveryFailureReason {
+  DELIVERY_FAILURE_REASON_UNSPECIFIED            = 0;
+  DELIVERY_FAILURE_REASON_NONE                   = 1;  // success or not applicable
+  DELIVERY_FAILURE_REASON_INTERNAL               = 2;  // our infra / unexpected
+  DELIVERY_FAILURE_REASON_PLATFORM_POLICY        = 3;  // e.g. outside standard messaging window
+  DELIVERY_FAILURE_REASON_PLATFORM_PERMISSION    = 4;  // token / app / page capability
+  DELIVERY_FAILURE_REASON_PLATFORM_RATE_LIMIT    = 5;
+  DELIVERY_FAILURE_REASON_INVALID_RECIPIENT      = 6;  // bad psid target, resolution failure
+  DELIVERY_FAILURE_REASON_UNKNOWN_PLATFORM_ERROR = 7;
+}
+
+enum RepeatType {
+  REPEAT_TYPE_UNSPECIFIED = 0;
+  REPEAT_TYPE_NONE        = 1;
+  REPEAT_TYPE_DAILY       = 2;
+  REPEAT_TYPE_WEEKLY      = 3;
+}
+
+enum LabelOp {
+  LABEL_OP_UNSPECIFIED = 0;
+  LABEL_OP_ADD         = 1;
+  LABEL_OP_DELETE      = 2;
+}
+
+enum BusinessLine {
+  BUSINESS_LINE_UNSPECIFIED      = 0;
+  BUSINESS_LINE_CUSTOMER_SUPPORT = 1;
+  BUSINESS_LINE_AFFILIATE        = 2;
+}
+
+enum ChatGroupVisibility {
+  CHAT_GROUP_VISIBILITY_UNSPECIFIED = 0;
+  CHAT_GROUP_VISIBILITY_PRIVATE     = 1;
+  CHAT_GROUP_VISIBILITY_PUBLIC      = 2;
+}
+
+enum ChatGroupRole {
+  CHAT_GROUP_ROLE_UNSPECIFIED = 0;
+  CHAT_GROUP_ROLE_OWNER       = 1;
+  CHAT_GROUP_ROLE_ADMIN       = 2;
+  CHAT_GROUP_ROLE_MEMBER      = 3;
+}
+
+// Player/customer satisfaction after a support conversation (explicit feedback, not LLM-inferred).
+enum CustomerSentiment {
+  CUSTOMER_SENTIMENT_UNSPECIFIED  = 0;
+  CUSTOMER_SENTIMENT_SATISFIED    = 1;
+  CUSTOMER_SENTIMENT_NEUTRAL      = 2;
+  CUSTOMER_SENTIMENT_DISSATISFIED = 3;
+}
+
+// ── QA evaluation (admin grades CS vs player on external threads) ──
+
+// Scoring criterion for admin QA evaluation. Allowed scores are fixed per criterion (see rubric RPC).
+enum QAEvaluationCriterion {
+  QA_EVALUATION_CRITERION_UNSPECIFIED     = 0;
+  QA_EVALUATION_CRITERION_UNDERSTAND_ISSUE = 1;  // max 15: 0,6,9,12,15
+  QA_EVALUATION_CRITERION_CORRECT_INFO     = 2;  // max 25: 0,10,15,20,25
+  QA_EVALUATION_CRITERION_CLEAR_SOLUTION   = 3;  // max 20: 0,8,12,16,20
+  QA_EVALUATION_CRITERION_ATTITUDE         = 4;  // max 15: 0,6,9,12,15
+  QA_EVALUATION_CRITERION_NATURAL_SPEECH   = 5;  // max 10: 0,4,6,8,10
+  QA_EVALUATION_CRITERION_FOLLOW_PROCESS   = 6;  // max 15: 0,3,6,9,15
+  QA_EVALUATION_CRITERION_NEAT_CLOSING     = 7;  // max  5: 0,2,3,4,5
+}
+
+// Critical error checked by QA; each maps to a fixed point deduction.
+enum QAEvaluationCriticalError {
+  QA_EVALUATION_CRITICAL_ERROR_UNSPECIFIED            = 0;
+  QA_EVALUATION_CRITICAL_ERROR_WRONG_MONEY_INFO       = 1;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_UNCERTAIN_PROMISE      = 2;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_INFO_LEAK              = 3;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_INSULT_CUSTOMER        = 4;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_OUT_OF_PROCESS         = 5;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_UNRESOLVED_CLOSING     = 6;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_WRONG_TRANSFER         = 7;  // -5
+  QA_EVALUATION_CRITICAL_ERROR_UNCHECKED_AI_SUGGESTION = 8; // -5
+  QA_EVALUATION_CRITICAL_ERROR_ABANDONED_CHAT         = 9;  // -3
+}
+
+enum QAEvaluationStatus {
+  QA_EVALUATION_STATUS_UNSPECIFIED = 0;
+  QA_EVALUATION_STATUS_PENDING     = 1;  // virtual list filter: no evaluation row yet
+  QA_EVALUATION_STATUS_EVALUATED   = 2;
+  QA_EVALUATION_STATUS_DISPUTE     = 3;
+}
+
+// Rating tier derived from total_score for staff scoreboard display.
+enum QAEvaluationRatingTier {
+  QA_EVALUATION_RATING_TIER_UNSPECIFIED       = 0;
+  QA_EVALUATION_RATING_TIER_GOOD              = 1;  // >= 90
+  QA_EVALUATION_RATING_TIER_PASS              = 2;  // 80-89
+  QA_EVALUATION_RATING_TIER_NEEDS_IMPROVEMENT = 3;  // 75-79
+  QA_EVALUATION_RATING_TIER_MUST_MENTOR       = 4;  // < 75
+}
+
+// Status of a Telegram Business CS connector account.
+enum TelegramCsAccountStatus {
+  TELEGRAM_CS_ACCOUNT_STATUS_UNSPECIFIED           = 0;
+  TELEGRAM_CS_ACCOUNT_STATUS_PENDING_BUSINESS_LINK = 1;
+  TELEGRAM_CS_ACCOUNT_STATUS_ACTIVE                = 2;
+  TELEGRAM_CS_ACCOUNT_STATUS_INACTIVE              = 3;
+  TELEGRAM_CS_ACCOUNT_STATUS_CONNECTION_LOST       = 4;
+}

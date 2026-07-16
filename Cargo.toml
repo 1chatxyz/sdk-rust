@@ -1,0 +1,48 @@
+[package]
+name = "onechat-sdk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Rust SDK for 1chat.xyz (gRPC-Web + server streaming)"
+license = "MIT"
+repository = "https://github.com/1chatxyz/sdk-rust"
+readme = "README.md"
+keywords = ["chat", "messaging", "sdk", "grpc", "grpc-web"]
+categories = ["api-bindings", "asynchronous"]
+exclude = [".cursor/", "reference/", ".env", ".env.local"]
+
+[lib]
+name = "onechat_sdk"
+path = "src/lib.rs"
+
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-rustls = { version = "0.27", default-features = false, features = [
+    "http1",
+    "ring",
+    "tls12",
+    "webpki-tokio",
+] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+prost = "0.13"
+prost-types = "0.13"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tonic = { version = "0.13", default-features = false, features = [
+    "codegen",
+    "prost",
+    "tls-ring",
+    "transport",
+] }
+tonic-web = "0.13"
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1"
+url = "2"
+
+[build-dependencies]
+tonic-build = { version = "0.13", default-features = false, features = ["prost", "transport"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
