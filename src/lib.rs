@@ -3,12 +3,15 @@
 //! Speaks **gRPC-Web** to the Envoy gateway URL in `API_1CHAT_URL`.
 //! Authenticate with `TENANT_ID` + `BOT_TOKEN`.
 //!
-//! # Status
+//! # Features
 //!
-//! - M1: `reply_group` / `send_group_text` / `set_typing`
-//! - M2: `subscribe_groups` / `run_group_bot` with reconnect
+//! - Groups: `reply_group`, `subscribe_groups` / `run_group_bot` (auto-reconnect)
+//! - DMs: `reply_dm`, `subscribe_dms`, `create_or_get_dm`
+//! - Media: `reply_group_with_media`, `download_media` (pre-uploaded URLs; no video)
+//! - Reactions: `react_group_message`, `react_dm_message`
+//! - Mentions: [`format_mention`], chunking via [`chunk_text`]
 //!
-//! See `AGENTS.md` and `.cursor/plans/2_roadmap.md`.
+//! Agent integration guide: `AGENTS.md`. Roadmap: `.cursor/plans/2_roadmap.md`.
 //!
 //! ```rust,no_run
 //! use futures_util::StreamExt;

@@ -6,30 +6,26 @@ Read [`.cursor/rules/1-project-overview.mdc`](.cursor/rules/1-project-overview.m
 
 ## Start here (integrate a bot)
 
-Required env (see `.env.example`; use `.env.local` locally — do not commit):
+Required env (see [`.env.example`](.env.example); use `.env.local` locally — do not commit):
 
 | Variable | Role |
 |----------|------|
 | `API_1CHAT_URL` | Envoy gateway base URL (gRPC-Web). Already the gateway — no proxy. |
 | `TENANT_ID` | Sent as `x-tenant-id` |
 | `BOT_TOKEN` | Sent as `Authorization: Bearer …` |
+| `ONECHAT_USER_ID` | Optional bot user id (self-filter / mention matching) |
+| `ONECHAT_USERNAME` | Optional bot username (mention matching) |
 
 ```rust
-use onechat_sdk::{Client, Config};
+use onechat_sdk::Client;
 
-let client = Client::try_new(Config {
-    api_url: std::env::var("API_1CHAT_URL")?,
-    tenant_id: std::env::var("TENANT_ID")?,
-    bot_token: std::env::var("BOT_TOKEN")?,
-    user_id: None,
-    username: None,
-})?;
-// Or: Client::from_env()?
+let client = Client::from_env()?;
+// Or: Client::try_new(Config { ... })?
 ```
 
-**Milestone status:** M2 = listen + reply with reconnect.  
-- **M3+:** DMs, media, reactions  
-- **M6:** full agent-handoff docs pack  
+**Status:** M0–M5 shipped (groups, DMs, media URLs, reactions). Use this file + `README.md` + `examples/` to integrate without reading the roadmap.
+
+### Minimal listen → reply
 
 ```rust
 use futures_util::StreamExt;
@@ -44,6 +40,90 @@ while let Some(event) = events.next().await {
 }
 ```
 
+Or use the convenience loop:
+
+```rust
+client
+    .run_group_bot(|client, msg| async move {
+        client.reply_group(msg.group_id, format!("echo: {}", msg.text)).await?;
+        Ok(())
+    })
+    .await?;
+```
+
+Live templates:
+
+```bash
+cargo run --example echo_bot
+cargo run --example send_group_message -- "hello"
+# needs CHANNEL_ID_TEST
+```
+
+## Public API map
+
+| Area | Methods / types |
+|------|-----------------|
+| Config | `Config`, `Client::from_env`, `Client::try_new` |
+| Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `set_typing` |
+| Group stream | `subscribe_groups`, `run_group_bot`, `SubscribeOptions`, `IncomingEvent` |
+| DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `subscribe_dms` |
+| Media | `MediaUrls`, `media_urls_from_paths`, `download_media` (max 5×20MB; **no video**) |
+| Reactions | `react_group_message`, `react_dm_message` |
+| Mentions | `format_mention` → `[[@Name:id]]`, `extract_mentioned_user_ids` |
+| Chunking | `chunk_text` / `TEXT_CHUNK_LIMIT` (4000) — applied inside send helpers |
+
+### Mentions
+
+```rust
+use onechat_sdk::format_mention;
+
+let text = format!("Hi {}", format_mention("Alice", 42));
+client.reply_group(group_id, text).await?;
+```
+
+### Media (pre-uploaded URLs)
+
+Multipart myEdge upload is **not** in this crate yet. Pass already-uploaded object paths/URLs:
+
+```rust
+use onechat_sdk::{MediaUrls, media_urls_from_paths};
+
+let media = media_urls_from_paths(["https://cdn.example/a.png", "docs/report.pdf"])?;
+client.reply_group_with_media(group_id, "see attached", &media).await?;
+
+// Download inbound `api/v1/upload/...` paths with bot auth:
+let path = client.download_media(&msg.images[0], "/tmp/onechat-media").await?;
+```
+
+### Reactions
+
+```rust
+client.react_group_message(msg.id, "👍", false).await?; // add
+client.react_dm_message(dm.id, "👍", true).await?;      // remove
+```
+
+### Direct messages
+
+```rust
+use futures_util::StreamExt;
+
+let thread_id = client.create_or_get_dm(other_user_id).await?;
+client.reply_dm(thread_id, other_user_id, "hello").await?;
+
+let mut dms = client.subscribe_dms().await?;
+while let Some(event) = dms.next().await {
+    if let IncomingEvent::DirectMessage(msg) = event? {
+        client
+            .reply_dm(msg.thread_id, msg.sender_user_id, "got it")
+            .await?;
+    }
+}
+```
+
+### Stream reconnect (built-in)
+
+`subscribe_groups` / `subscribe_dms` reconnect on disconnect, idle (~90s; pings reset idle), and max age (~25m). Resume uses the last message id. Backoff is 2s → 60s. Pings never surface as `IncomingEvent`.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -51,8 +131,10 @@ while let Some(event) = events.next().await {
 | `src/` | SDK library (`onechat_sdk`) |
 | `proto/` | Protobuf sources + vendored `google/api`, `validate` |
 | `build.rs` | `tonic-build` client codegen into `OUT_DIR` (`src/pb.rs` includes it) |
+| `examples/` | Runnable bot templates |
 | `reference/` (gitignored) | Local-only OpenClaw/Hermes samples — do not commit or push |
 | `.cursor/plans/2_roadmap.md` | Milestones M0–M7 |
+| `.github/workflows/` | CI + crates.io publish |
 
 ## GitHub identity
 
@@ -71,13 +153,33 @@ cargo test
 cargo clean -p onechat-sdk && cargo build   # regen protos
 ```
 
+Requires Rust **1.85+** and [`protoc`](https://grpc.io/docs/protoc-installation/).
+
+## Proto regeneration
+
+When upstream protos change, update files under `proto/` (mirror of `profo/` when provided), then:
+
+```bash
+cargo clean -p onechat-sdk && cargo build
+```
+
+Keep generated tonic types private; expose only the high-level `Client` API.
+
+## Publishing (crates.io)
+
+- Crate: `onechat-sdk` (lib: `onechat_sdk`)
+- Semver: bump `version` in `Cargo.toml` in the releasing PR
+- CI publish workflow uses GitHub secret `CARGO_REGISTRY_TOKEN` (never commit it)
+- Publish is idempotent if the version already exists on crates.io
+
 ## Do / Don’t
 
 - **Do** call the Envoy URL with **gRPC-Web** only.
 - **Do** use the public `Client` / `Config` API; keep generated tonic types private.
 - **Don’t** invent REST or WebSocket transports.
-- **Don’t** commit `.env.local` or `CARGO_REGISTRY_TOKEN`.
+- **Don’t** commit `.env.local`, `reference/`, or `CARGO_REGISTRY_TOKEN`.
 - **Don’t** send `x-user-id` — the gateway injects it from the bot token.
+- **Don’t** attach videos in v1.
 
 ## Authentication
 
