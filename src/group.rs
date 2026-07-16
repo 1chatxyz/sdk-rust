@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::chunking::chunk_text;
 use crate::client::Client;
 use crate::error::{Error, Result};
+use crate::media::MediaUrls;
 use crate::mention::extract_mentioned_user_ids;
 use crate::pb::genjutsu::myconversation::v1::{
     SendChatGroupMessageRequest, SignalChatGroupTypingRequest,
@@ -25,6 +26,19 @@ impl Client {
         text: impl Into<String>,
         mentioned_user_ids: impl IntoIterator<Item = i64>,
     ) -> Result<i64> {
+        self.send_group_message(group_id, text, mentioned_user_ids, MediaUrls::default())
+            .await
+    }
+
+    /// Send a single group message with optional pre-uploaded media URLs.
+    pub async fn send_group_message(
+        &self,
+        group_id: i64,
+        text: impl Into<String>,
+        mentioned_user_ids: impl IntoIterator<Item = i64>,
+        media: MediaUrls,
+    ) -> Result<i64> {
+        media.validate()?;
         let content = text.into();
         let mentioned_user_ids: Vec<i64> = mentioned_user_ids.into_iter().collect();
         let req = SendChatGroupMessageRequest {
@@ -32,9 +46,9 @@ impl Client {
             content,
             mentioned_user_ids,
             client_message_id: Uuid::new_v4().to_string(),
-            images: Vec::new(),
+            images: media.images,
             videos: Vec::new(),
-            files: Vec::new(),
+            files: media.files,
             topic_id: 0,
             reply_to_message_id: 0,
             reply_quote_text: String::new(),
@@ -61,18 +75,40 @@ impl Client {
         group_id: i64,
         text: impl AsRef<str>,
     ) -> Result<SendGroupMessageResult> {
+        self.reply_group_with_media(group_id, text, MediaUrls::default())
+            .await
+    }
+
+    /// Reply in a group with media attached to the first chunk only.
+    pub async fn reply_group_with_media(
+        &self,
+        group_id: i64,
+        text: impl AsRef<str>,
+        media: MediaUrls,
+    ) -> Result<SendGroupMessageResult> {
+        media.validate()?;
         let chunks = chunk_text(text.as_ref());
-        if chunks.is_empty() {
+        if chunks.is_empty() && media.images.is_empty() && media.files.is_empty() {
             return Ok(SendGroupMessageResult {
                 message_ids: Vec::new(),
             });
         }
+        let chunks = if chunks.is_empty() {
+            vec![String::new()]
+        } else {
+            chunks
+        };
 
         let mentions = extract_mentioned_user_ids(text.as_ref());
         let mut message_ids = Vec::with_capacity(chunks.len());
         for (i, chunk) in chunks.into_iter().enumerate() {
             let ids = if i == 0 { mentions.clone() } else { Vec::new() };
-            match self.send_group_text(group_id, chunk, ids).await {
+            let media = if i == 0 {
+                media.clone()
+            } else {
+                MediaUrls::default()
+            };
+            match self.send_group_message(group_id, chunk, ids, media).await {
                 Ok(id) => message_ids.push(id),
                 Err(e) => {
                     if message_ids.is_empty() {

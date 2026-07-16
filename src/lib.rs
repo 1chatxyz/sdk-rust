@@ -34,8 +34,10 @@ mod config;
 mod dm;
 mod error;
 mod group;
+mod media;
 mod mention;
 mod pb;
+mod reaction;
 mod stream;
 mod transport;
 mod types;
@@ -46,7 +48,12 @@ pub use config::Config;
 pub use dm::DirectEventStream;
 pub use error::{Error, Result};
 pub use group::SendGroupMessageResult;
+pub use media::{
+    MAX_ATTACHMENTS, MAX_FILE_BYTES, MediaKind, MediaUrls, classify_media_path,
+    media_urls_from_paths,
+};
 pub use mention::{extract_mentioned_user_ids, format_mention};
+pub use reaction::Reaction;
 pub use stream::{GroupEventStream, compute_reconnect_delay};
 pub use types::{
     IncomingDirectMessage, IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions,
