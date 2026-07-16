@@ -39,12 +39,11 @@ impl fmt::Debug for UnaryHandle {
     }
 }
 
-/// Opaque gRPC-Web handle used for server streams (M2+).
+/// Opaque gRPC-Web handle used for server streams.
 ///
 /// Kept separate from [`UnaryHandle`] so long-lived streams do not share a
 /// connection with unary traffic (parity with the TypeScript reference).
 #[derive(Clone)]
-#[allow(dead_code)] // Fields consumed when M2 attaches stream clients.
 pub(crate) struct StreamHandle {
     pub(crate) base_uri: Uri,
     pub(crate) http: HttpClient,
@@ -133,9 +132,8 @@ impl Client {
         &self.unary
     }
 
-    /// Stream RPC handle (crate-internal until M2 wrappers land).
-    #[allow(dead_code)]
-    pub(crate) fn stream(&self) -> &StreamHandle {
+    /// Stream RPC handle.
+    pub(crate) fn stream_handle(&self) -> &StreamHandle {
         &self.stream
     }
 }
@@ -169,7 +167,7 @@ mod tests {
         let client = Client::try_new(sample_config("https://gateway.example.com")).unwrap();
         assert_eq!(client.base_url(), "https://gateway.example.com");
         let _ = client.unary();
-        let _ = client.stream();
+        let _ = client.stream_handle();
     }
 
     #[test]
