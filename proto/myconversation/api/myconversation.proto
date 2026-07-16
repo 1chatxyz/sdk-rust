@@ -1,0 +1,2918 @@
+syntax = "proto3";
+
+package genjutsu.myconversation.v1;
+
+option go_package = "gitlab.genjutsu.ai/marketplace/myconversation/api/v1/myconversation;myconversation";
+
+import "myconversation/api/model.proto";
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+import "google/api/annotations.proto";
+
+service MyConversation {
+  rpc LinkFacebook(LinkFacebookRequest) returns (LinkFacebookReply);
+  rpc ListFacebookAccounts(ListFacebookAccountsRequest) returns (ListFacebookAccountsReply);
+  rpc ListPages(ListPagesRequest) returns (ListPagesReply);
+  rpc UpdatePage(UpdatePageRequest) returns (UpdatePageReply);
+
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsReply);
+  // Platforms the tenant has configured for the helpdesk inbox (Facebook, partner, Telegram CS).
+  // Admin and Agent only — FE uses this to show/hide per-platform conversation tabs.
+  rpc ListPlatforms(ListPlatformsRequest) returns (ListPlatformsReply);
+  rpc GetConversation(GetConversationRequest) returns (GetConversationReply);
+  rpc UpdateConversation(UpdateConversationRequest) returns (UpdateConversationReply);
+
+  rpc AddConversationLabels(AddConversationLabelsRequest) returns (AddConversationLabelsReply);
+  rpc RemoveConversationLabels(RemoveConversationLabelsRequest) returns (RemoveConversationLabelsReply);
+
+  rpc ListLabels(ListLabelsRequest) returns (ListLabelsReply);
+  rpc CreateLabel(CreateLabelRequest) returns (CreateLabelReply);
+  rpc UpdateLabel(UpdateLabelRequest) returns (UpdateLabelReply);
+  rpc DeleteLabel(DeleteLabelRequest) returns (DeleteLabelReply);
+
+  rpc GetConversationMessages(GetConversationMessagesRequest) returns (GetConversationMessagesReply);
+  // Tenant-wide search: customer_name matches first, then message content (FULLTEXT/LIKE).
+  // Paginate with page/page_size; use SearchMessagesReply.has_next (not len(hits) vs page_size).
+  rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesReply);
+  // Chronological chat timeline: messages, update events, and private notes (newest-first pages).
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesReply);
+  // Server stream of helpdesk activity: conversation lines + AI reply suggestions (tenant-scoped).
+  rpc StreamMessages(StreamMessagesRequest) returns (stream HelpdeskStreamEvent);
+  rpc ListAiReplySuggestions(ListAiReplySuggestionsRequest) returns (ListAiReplySuggestionsReply);
+  // Outbound sales reply on an external (partner) thread. When the conversation is unassigned
+  // (user_id = 0), the authenticated salesperson (x-user-id) is stored as assignee on the first
+  // successful send; already-assigned threads are unchanged.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageReply);
+  // Edit or soft-delete a sales outbound message on an external (partner) thread.
+  rpc UpdateMessage(UpdateMessageRequest) returns (UpdateMessageReply);
+  rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageReply);
+  rpc Seen(SeenRequest) returns (SeenReply);
+  // Mark messages unread: omit message_ids to unseen the whole conversation, or pass up to 200 ids.
+  rpc Unseen(UnseenRequest) returns (UnseenReply);
+  // Mark customer messages received (delivery receipt): pass 1–200 message ids (no conversation_id).
+  // Monotonic — no un-received counterpart.
+  rpc Received(ReceivedRequest) returns (ReceivedReply);
+  // ListUnreceivedMessages returns customer inbound messages not yet marked received by staff,
+  // across the tenant inbox (cursor pagination; no conversation_id).
+  rpc ListUnreceivedMessages(ListUnreceivedMessagesRequest) returns (ListUnreceivedMessagesReply);
+
+  rpc ListPrivateNotes(ListPrivateNotesRequest) returns (ListPrivateNotesReply);
+  rpc CreatePrivateNote(CreatePrivateNoteRequest) returns (CreatePrivateNoteReply);
+  rpc UpdatePrivateNote(UpdatePrivateNoteRequest) returns (UpdatePrivateNoteReply);
+  rpc DeletePrivateNotes(DeletePrivateNotesRequest) returns (DeletePrivateNotesReply);
+  rpc CreateScheduledMessage(CreateScheduledMessageRequest) returns (CreateScheduledMessageReply);
+  rpc ListScheduledMessages(ListScheduledMessagesRequest) returns (ListScheduledMessagesReply);
+  rpc GetScheduledMessage(GetScheduledMessageRequest) returns (GetScheduledMessageReply);
+  rpc UpdateScheduledMessage(UpdateScheduledMessageRequest) returns (UpdateScheduledMessageReply);
+  rpc DeleteScheduledMessage(DeleteScheduledMessageRequest) returns (DeleteScheduledMessageReply);
+
+  rpc ListRecipients(ListRecipientsRequest) returns (ListRecipientsReply);
+  rpc CreateRecipient(CreateRecipientRequest) returns (CreateRecipientReply);
+  rpc UpdateRecipient(UpdateRecipientRequest) returns (UpdateRecipientReply);
+  rpc DeleteRecipient(DeleteRecipientRequest) returns (DeleteRecipientReply);
+
+  rpc CreateIntegration(CreateIntegrationRequest) returns (CreateIntegrationReply);
+  rpc ListIntegrations(ListIntegrationsRequest) returns (ListIntegrationsReply);
+  rpc UpdateIntegration(UpdateIntegrationRequest) returns (UpdateIntegrationReply);
+  rpc RotateIntegrationSecret(RotateIntegrationSecretRequest) returns (RotateIntegrationSecretReply);
+  rpc DeleteIntegration(DeleteIntegrationRequest) returns (DeleteIntegrationReply);
+
+  // ── Telegram CS accounts (Business + Bot API connector; Admin CRUD; Admin+Agent list) ──
+  rpc CreateTelegramCsAccount(CreateTelegramCsAccountRequest) returns (CreateTelegramCsAccountReply);
+  rpc ListTelegramCsAccounts(ListTelegramCsAccountsRequest) returns (ListTelegramCsAccountsReply);
+  rpc UpdateTelegramCsAccount(UpdateTelegramCsAccountRequest) returns (UpdateTelegramCsAccountReply);
+  rpc DeleteTelegramCsAccount(DeleteTelegramCsAccountRequest) returns (DeleteTelegramCsAccountReply);
+
+  rpc GetDashboard(GetDashboardRequest) returns (GetDashboardReply);
+
+  // ── Dashboard analytics (per UI section). All RPCs share DashboardFilter; clients run them in parallel. ──
+  rpc GetDashboardConversationQuality(DashboardFilter) returns (GetDashboardConversationQualityReply);
+  rpc GetDashboardSentiment(DashboardFilter) returns (GetDashboardSentimentReply);
+  rpc GetDashboardComplaints(DashboardFilter) returns (GetDashboardComplaintsReply);
+  rpc GetDashboardTimingMetrics(DashboardFilter) returns (GetDashboardTimingMetricsReply);
+  rpc GetDashboardTimingTrend(DashboardFilter) returns (GetDashboardTimingTrendReply);
+  rpc GetDashboardStaffRanking(DashboardFilter) returns (GetDashboardStaffRankingReply);
+  rpc GetDashboardAiHumanAnalytics(DashboardFilter) returns (GetDashboardAiHumanAnalyticsReply);
+  rpc GetDashboardPeakHours(DashboardFilter) returns (GetDashboardPeakHoursReply);
+  rpc GetDashboardAiPerformance(DashboardFilter) returns (GetDashboardAiPerformanceReply);
+  // Populates the "Nhân viên CS" dropdown (myid users for the tenant).
+  rpc ListDashboardCsStaff(ListDashboardCsStaffRequest) returns (ListDashboardCsStaffReply);
+
+  // ── QA evaluation (external threads; Auditors: GetConversationMessages for chat history) ──
+  rpc GetQAEvaluationRubric(GetQAEvaluationRubricRequest) returns (GetQAEvaluationRubricReply);
+  rpc ListQAEvaluationConversations(ListQAEvaluationConversationsRequest) returns (ListQAEvaluationConversationsReply);
+  rpc GetQAEvaluation(GetQAEvaluationRequest) returns (GetQAEvaluationReply);
+  rpc SubmitQAEvaluation(SubmitQAEvaluationRequest) returns (SubmitQAEvaluationReply);
+  rpc GetQAEvaluationStaffRanking(QAEvaluationFilter) returns (GetQAEvaluationStaffRankingReply);
+  rpc ListQAEvaluationCriticalErrors(QAEvaluationFilter) returns (ListQAEvaluationCriticalErrorsReply);
+
+  // Loads the tenant's partner integration (Get user profile URL + HMAC auth) and returns
+  // the partner user profile for the given external_id. (CRM ownership check deferred.)
+  rpc GetCustomerProfile(GetCustomerProfileRequest) returns (GetCustomerProfileReply);
+
+  // ── Staff group chat (tenant-scoped; separate from customer Conversation threads) ──
+  rpc CreateChatGroup(CreateChatGroupRequest) returns (CreateChatGroupReply);
+  rpc UpdateChatGroup(UpdateChatGroupRequest) returns (UpdateChatGroupReply);
+  rpc DeleteChatGroup(DeleteChatGroupRequest) returns (DeleteChatGroupReply);
+  rpc ListMyChatGroups(ListMyChatGroupsRequest) returns (ListMyChatGroupsReply);
+  rpc GetChatGroup(GetChatGroupRequest) returns (GetChatGroupReply);
+  rpc AddChatGroupMember(AddChatGroupMemberRequest) returns (AddChatGroupMemberReply);
+  rpc RemoveChatGroupMember(RemoveChatGroupMemberRequest) returns (RemoveChatGroupMemberReply);
+  rpc UpdateChatGroupMemberRole(UpdateChatGroupMemberRoleRequest) returns (UpdateChatGroupMemberRoleReply);
+  // Update live membership role and/or anonymous flag. Does not rewrite historical
+  // ChatGroupMessage.sender_anonymous snapshots. OWNER/ADMIN may be anonymous;
+  // MEMBER+anonymous is rejected. Owner/admin may self-toggle anonymity at will.
+  rpc UpdateChatGroupMember(UpdateChatGroupMemberRequest) returns (UpdateChatGroupMemberReply);
+  rpc LeaveChatGroup(LeaveChatGroupRequest) returns (LeaveChatGroupReply);
+  rpc ListChatGroupMembers(ListChatGroupMembersRequest) returns (ListChatGroupMembersReply);
+  rpc JoinChatGroup(JoinChatGroupRequest) returns (JoinChatGroupReply);
+  rpc CreateChatGroupTopic(CreateChatGroupTopicRequest) returns (CreateChatGroupTopicReply);
+  rpc UpdateChatGroupTopic(UpdateChatGroupTopicRequest) returns (UpdateChatGroupTopicReply);
+  rpc DeleteChatGroupTopic(DeleteChatGroupTopicRequest) returns (DeleteChatGroupTopicReply);
+  rpc ListChatGroupTopics(ListChatGroupTopicsRequest) returns (ListChatGroupTopicsReply);
+  rpc GetChatGroupTopic(GetChatGroupTopicRequest) returns (GetChatGroupTopicReply);
+  rpc SendChatGroupMessage(SendChatGroupMessageRequest) returns (SendChatGroupMessageReply) {
+    option (google.api.http) = {
+      post: "/api/v1/myconversation/chat-group-messages/{group_id}"
+      body: "*"
+    };
+  };
+  // Only the original sender may edit or delete; admins cannot mutate another member's message.
+  rpc UpdateChatGroupMessage(UpdateChatGroupMessageRequest) returns (UpdateChatGroupMessageReply);
+  rpc DeleteChatGroupMessage(DeleteChatGroupMessageRequest) returns (DeleteChatGroupMessageReply);
+  rpc ListChatGroupMessages(ListChatGroupMessagesRequest) returns (ListChatGroupMessagesReply);
+  rpc MarkChatGroupReceived(MarkChatGroupReceivedRequest) returns (MarkChatGroupReceivedReply);
+  rpc MarkChatGroupRead(MarkChatGroupReadRequest) returns (MarkChatGroupReadReply);
+  // Add or remove the caller's emoji reaction on a group message (idempotent).
+  rpc SetChatGroupMessageReaction(SetChatGroupMessageReactionRequest) returns (SetChatGroupMessageReactionReply);
+  // Pin or unpin a group message in its topic scope (main channel when topic_id = 0).
+  rpc SetChatGroupMessagePinned(SetChatGroupMessagePinnedRequest) returns (SetChatGroupMessagePinnedReply);
+  // List pinned messages in a group topic; optional content search via query.
+  rpc ListChatGroupPinnedMessages(ListChatGroupPinnedMessagesRequest) returns (ListChatGroupPinnedMessagesReply);
+  rpc ListMyChatGroupMentions(ListMyChatGroupMentionsRequest) returns (ListMyChatGroupMentionsReply);
+  rpc MarkChatGroupMentionRead(MarkChatGroupMentionReadRequest) returns (MarkChatGroupMentionReadReply);
+  rpc SearchChatGroups(SearchChatGroupsRequest) returns (SearchChatGroupsReply);
+  rpc SearchGroupMessages(SearchGroupMessagesRequest) returns (SearchGroupMessagesReply);
+  // Server stream of staff group chat activity (messages + membership/meta changes; tenant-scoped).
+  rpc StreamChatGroups(StreamChatGroupsRequest) returns (stream ChatGroupStreamEvent);
+  rpc SignalChatGroupTyping(SignalChatGroupTypingRequest) returns (SignalChatGroupTypingReply);
+
+  // ── Staff direct message (1:1; separate from ChatGroup and customer Conversation) ──
+  rpc CreateOrGetDirectMessage(CreateOrGetDirectMessageRequest) returns (CreateOrGetDirectMessageReply);
+  rpc ListMyDirectMessages(ListMyDirectMessagesRequest) returns (ListMyDirectMessagesReply);
+  rpc GetDirectMessage(GetDirectMessageRequest) returns (GetDirectMessageReply);
+  rpc SendDirectMessage(SendDirectMessageRequest) returns (SendDirectMessageReply) {
+    option (google.api.http) = {
+      post: "/api/v1/myconversation/direct-messages"
+      body: "*"
+    };
+  }
+  // Only the original sender may edit or delete.
+  rpc UpdateDirectMessage(UpdateDirectMessageRequest) returns (UpdateDirectMessageReply);
+  rpc DeleteDirectMessage(DeleteDirectMessageRequest) returns (DeleteDirectMessageReply);
+  rpc ListDirectMessages(ListDirectMessagesRequest) returns (ListDirectMessagesReply);
+  rpc MarkDirectMessageRead(MarkDirectMessageReadRequest) returns (MarkDirectMessageReadReply);
+  rpc MarkDirectMessageReceived(MarkDirectMessageReceivedRequest) returns (MarkDirectMessageReceivedReply);
+  // Add or remove the caller's emoji reaction on a direct message (idempotent).
+  rpc SetDirectMessageReaction(SetDirectMessageReactionRequest) returns (SetDirectMessageReactionReply);
+  // Pin or unpin a direct message in the thread scope.
+  rpc SetDirectMessagePinned(SetDirectMessagePinnedRequest) returns (SetDirectMessagePinnedReply);
+  // List pinned messages in a DM thread; optional content search via query.
+  rpc ListDirectMessagePinnedMessages(ListDirectMessagePinnedMessagesRequest) returns (ListDirectMessagePinnedMessagesReply);
+  rpc SearchDirectMessages(SearchDirectMessagesRequest) returns (SearchDirectMessagesReply);
+  // Server stream of staff direct message activity (tenant-scoped; filtered to participant threads).
+  rpc StreamDirectMessages(StreamDirectMessagesRequest) returns (stream DirectMessageStreamEvent);
+  rpc SignalDirectMessageTyping(SignalDirectMessageTypingRequest) returns (SignalDirectMessageTypingReply);
+
+  // ── Forward / shared message (ACL grant + snapshot) ──
+  // Load source with sharer ACL, freeze snapshot into shared_messages; does not send.
+  rpc ShareMessage(ShareMessageRequest) returns (ShareMessageReply);
+  // Load snapshot if requester is in the grant audience (not source membership).
+  rpc GetSharedMessage(GetSharedMessageRequest) returns (GetSharedMessageReply);
+
+  // ── Push notifications (device registration + per-user preferences) ──
+  // Upsert (tenant_id, user_id, platform, token) from authenticated context.
+  rpc RegisterPushDevice(RegisterPushDeviceRequest) returns (RegisterPushDeviceReply);
+  // Delete by device id or FCM / Web Push token.
+  rpc UnregisterPushDevice(UnregisterPushDeviceRequest) returns (UnregisterPushDeviceReply);
+  // Effective prefs for the caller; lazy-init role-based defaults when no row exists.
+  rpc GetNotificationPreferences(GetNotificationPreferencesRequest) returns (GetNotificationPreferencesReply);
+  // Partial update of preference bool flags.
+  rpc UpdateNotificationPreferences(UpdateNotificationPreferencesRequest) returns (UpdateNotificationPreferencesReply);
+
+  // ── Link preview ──
+  // Fetch Open Graph / meta tags for a URL and return a structured preview; result is best-effort.
+  rpc PreviewLink(PreviewLinkRequest) returns (PreviewLinkReply);
+
+  // ── Message media gallery ──
+  // Flat, newest-first list of media items of one type in a chat group or DM thread.
+  rpc ListMessageMedia(ListMessageMediaRequest) returns (ListMessageMediaReply);
+  // Per-type totals so clients can show only tabs that have content.
+  rpc GetMessageMediaCounts(GetMessageMediaCountsRequest) returns (GetMessageMediaCountsReply);
+}
+
+message MetaPageInfo {
+  int64 id                             = 1;
+  string page_id                       = 2;
+  string page_name                     = 3;
+  string picture_url                   = 4;
+  model.v1.Status status               = 5;
+  model.v1.Mode mode                   = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message LinkFacebookRequest {
+  string authorization_code = 1 [(validate.rules).string = { min_len: 1, max_len: 2048 }];
+  string redirect_url       = 2 [(validate.rules).string = { min_len: 1, max_len: 2048 }];
+}
+
+message LinkFacebookReply {
+  repeated MetaPageInfo pages = 1;
+}
+
+message MetaFacebookAccountInfo {
+  int64 id                                   = 1;
+  string facebook_user_id                    = 2;
+  string display_name                        = 3;
+  string picture_url                         = 4;
+  google.protobuf.Timestamp token_expires_at = 5;
+  google.protobuf.Timestamp created_at       = 6;
+  google.protobuf.Timestamp updated_at       = 7;
+}
+
+message ListFacebookAccountsRequest {
+  int32 page_size = 1;
+  int32 page      = 2;
+}
+
+message ListFacebookAccountsReply {
+  repeated MetaFacebookAccountInfo accounts = 1;
+  int32 page_size                           = 2;
+  int32 page                                = 3;
+  int64 count                               = 4;
+}
+
+message ListPagesRequest {
+  int32 page_size                   = 1;
+  int32 page                        = 2;
+  repeated model.v1.Status statuses = 3;
+  repeated model.v1.Mode modes      = 4;
+}
+
+message ListPagesReply {
+  repeated MetaPageInfo pages = 1;
+  int32 page_size             = 2;
+  int32 page                  = 3;
+  int64 count                 = 4;
+}
+
+message UpdatePageRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      model.v1.Status status = 1;
+      model.v1.Mode mode     = 2;
+    }
+  }
+}
+
+message UpdatePageReply {
+}
+
+message UpdateConversationRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      model.v1.Mode mode = 1;
+      // Reassign thread to another myid salesperson (0 = unassigned). Any tenant member may set this.
+      int64 user_id = 2 [(validate.rules).int64 = { gte: 0 }];
+      // Help-desk state; any tenant member may update. Valid transitions are enforced server-side.
+      model.v1.ConversationState state = 3;
+    }
+  }
+}
+
+message UpdateConversationReply {
+}
+
+message LabelInfo {
+  // Denormalized catalog row id (same as LabelCatalogInfo.id) when the tag was copied from definitions; 0 for freeform-only. Not a foreign key at the SQL layer — stored only inside Conversation.labels JSON.
+  int64 id           = 1;
+  string title       = 2 [(validate.rules).string = { max_len: 128 }];
+  string color       = 3 [(validate.rules).string = { ignore_empty: true, max_len: 32 }];
+  string description = 4 [(validate.rules).string = { ignore_empty: true, max_len: 512 }];
+  // Milliseconds since Unix epoch when this tagging was written on the conversation (used with cutoff_unix_ms on catalog delete).
+  int64 applied_at_unix_ms = 5;
+}
+
+message AddConversationLabelsRequest {
+  int64 conversation_id     = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated int64 ids        = 2 [(validate.rules).repeated = { max_items: 3,
+                                                               items: { int64: { gt: 0 } } }];
+  repeated LabelInfo labels = 3 [(validate.rules).repeated = { max_items: 3 }];
+}
+
+message AddConversationLabelsReply {
+  repeated LabelInfo labels = 1;
+}
+
+message RemoveConversationLabelsRequest {
+  int64 conversation_id  = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated string titles = 2 [(validate.rules).repeated = { min_items: 1, max_items: 50,
+                                                            items: { string: { min_len: 1, max_len: 128 } } }];
+}
+
+message RemoveConversationLabelsReply {
+  repeated LabelInfo labels = 1;
+}
+
+message LabelCatalogInfo {
+  int64 id                             = 1;
+  string title                         = 2 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+  string color                         = 3 [(validate.rules).string = { ignore_empty: true, max_len: 32 }];
+  string description                   = 4 [(validate.rules).string = { ignore_empty: true, max_len: 512 }];
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListLabelsRequest {
+  int32 page_size = 1;
+  int32 page      = 2;
+}
+
+message ListLabelsReply {
+  repeated LabelCatalogInfo labels = 1;
+  int32 page_size                  = 2;
+  int32 page                       = 3;
+  int64 count                      = 4;
+}
+
+message CreateLabelRequest {
+  string title       = 1 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+  string color       = 2 [(validate.rules).string = { ignore_empty: true, max_len: 32 }];
+  string description = 3 [(validate.rules).string = { ignore_empty: true, max_len: 512 }];
+}
+
+message CreateLabelReply {
+  LabelCatalogInfo label = 1;
+}
+
+message UpdateLabelRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2 [(validate.rules).repeated = { min_items: 1, max_items: 10 }];
+  message Change {
+    oneof field {
+      string color       = 1 [(validate.rules).string = { max_len: 32 }];
+      string description = 2 [(validate.rules).string = { max_len: 512 }];
+      // Normalized to lowercase on write; identity for conversation tag sync / filters.
+      string title = 3 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+    }
+  }
+}
+
+message UpdateLabelReply {
+  LabelCatalogInfo label = 1;
+}
+
+message DeleteLabelRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteLabelReply {
+}
+
+message ConversationInfo {
+  int64 id                                  = 1;
+  model.v1.Platform platform                = 2;
+  string fanpage_id                         = 3;
+  string external_id                        = 4;
+  string customer_name                      = 5;
+  string fanpage_name                       = 6;
+  google.protobuf.Timestamp last_message_at = 7;
+  model.v1.Mode mode                        = 8;
+  ConversationMessageInfo last_message      = 9;
+  // At most 3 labels per conversation (enforced on AddConversationLabels).
+  repeated LabelInfo labels = 10;
+  // Count of messages with seen=false in this conversation.
+  int64 unread_count = 11;
+  // myid salesperson assigned to this thread; 0 = unassigned.
+  int64 user_id                    = 12;
+  model.v1.ConversationState state = 13;
+  // URL for helpdesk customer avatar (partner profile or Messenger Graph).
+  string avatar = 14;
+}
+
+message GetConversationRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message GetConversationReply {
+  ConversationInfo conversation = 1;
+}
+
+// Assignee scope for ListConversations. MINE and OTHERS require x-user-id on the request.
+enum ConversationOwnerFilter {
+  CONVERSATION_OWNER_FILTER_UNSPECIFIED = 0;  // no assignee filter (same as ALL)
+  CONVERSATION_OWNER_FILTER_ALL         = 1;
+  CONVERSATION_OWNER_FILTER_MINE        = 2;  // conversation.user_id == caller
+  CONVERSATION_OWNER_FILTER_OTHERS      = 3;  // user_id > 0 and user_id != caller
+  CONVERSATION_OWNER_FILTER_UNASSIGNED  = 4;  // user_id == 0
+}
+
+message ListConversationsLabelsFilter {
+  // AND filter: conversation must include every normalized title (case-insensitive).
+  repeated string titles = 1 [(validate.rules).repeated = { max_items: 20,
+                                                            items: { string: { ignore_empty: true, min_len: 1, max_len: 128 } } }];
+}
+
+message ListConversationsStatesFilter {
+  // Help-desk state tab(s). Empty = all states within this filter (no-op if unset).
+  repeated model.v1.ConversationState states = 1 [(validate.rules).repeated = { max_items: 4,
+                                                                                items: { enum: { defined_only: true } } }];
+}
+
+message ListConversationsCustomerNameFilter {
+  // Case-insensitive substring match on customer_name (SQL LIKE; % and _ in query are literal).
+  string query = 1 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+}
+
+// Inbox sort for ListConversations (uses denormalized last_message_at / unread_count on Conversation).
+enum ListConversationsSort {
+  LIST_CONVERSATIONS_SORT_UNSPECIFIED  = 0;  // newest first (same as NEWEST_FIRST)
+  LIST_CONVERSATIONS_SORT_NEWEST_FIRST = 1;
+  LIST_CONVERSATIONS_SORT_OLDEST_FIRST = 2;
+  LIST_CONVERSATIONS_SORT_MOST_UNREAD  = 3;
+}
+
+message ListConversationsFilter {
+  oneof criterion {
+    ListConversationsLabelsFilter labels              = 1;
+    ListConversationsStatesFilter states              = 2;
+    ConversationOwnerFilter owner                     = 3 [(validate.rules).enum = { defined_only: true }];
+    ListConversationsCustomerNameFilter customer_name = 4;
+  }
+}
+
+message ListConversationsRequest {
+  string fanpage_id                        = 1 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+  int32 page_size                          = 2;
+  int32 page                               = 3;
+  string integration_client_id             = 4 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+  repeated ListConversationsFilter filters = 5 [(validate.rules).repeated = { max_items: 4 }];
+  ListConversationsSort sort               = 6 [(validate.rules).enum = { defined_only: true }];
+  // When set (> 0), scope results to PLATFORM_TELEGRAM conversations for the given CS user.
+  // fanpage_id and integration_client_id must be unset when this is used.
+  int64 telegram_cs_user_id = 7 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message ListConversationsReply {
+  repeated ConversationInfo conversations = 1;
+  int32 page_size                         = 2;
+  int32 page                              = 3;
+  // Total matching labels/states/customer_name/fanpage scope; owner filter is ignored (use for "All" badge and pagination denominator).
+  int64 count            = 4;
+  int64 mine_count       = 5;  // in scope (non-owner filters); user_id == caller
+  int64 unassigned_count = 6;  // in scope (non-owner filters); user_id == 0
+}
+
+message ListPlatformsRequest {}
+
+// One configured inbox source (page, integration, or Telegram CS account) for ListConversations scoping.
+message PlatformInfo {
+  model.v1.Platform platform = 1;
+  // Scope id for ListConversations: fanpage_id (Facebook), integration_client_id (External),
+  // or telegram_cs_user_id as decimal string (Telegram).
+  string id   = 2 [(validate.rules).string = { min_len: 1, max_len: 64 }];
+  string name = 3;
+}
+
+message ListPlatformsReply {
+  repeated PlatformInfo platforms = 1;
+}
+
+message ConversationMessageInfo {
+  int64 id                          = 1;
+  int64 conversation_id             = 2;
+  model.v1.Sender sender            = 3;
+  model.v1.Method method            = 4;
+  string content                    = 5;
+  repeated string images            = 6;
+  repeated string videos            = 7;
+  repeated string audios            = 8;
+  repeated string files             = 9;
+  google.protobuf.Timestamp send_at = 10;
+  // Staff read receipt on customer inbound rows (conversation_messages.seen).
+  bool seen = 11;
+  // Populated only when sender is SENDER_SALES.
+  int64 sender_user_id                   = 12;
+  string sender_username                 = 13;
+  google.protobuf.Timestamp edited_at    = 14;
+  google.protobuf.Timestamp deleted_at   = 15;
+  string media_description               = 16;
+  model.v1.MessageStatus delivery_status = 17;
+  google.protobuf.Timestamp scheduled_at = 18;
+  google.protobuf.Timestamp created_at   = 19;
+  bool received                          = 20;
+  // Staff delivery receipt time on customer inbound rows; set iff received is true.
+  google.protobuf.Timestamp received_at = 21;
+  bool seen_by_customer                 = 22;
+  bool received_by_customer             = 23;
+  // Staff read receipt time on customer inbound rows; set iff seen is true.
+  google.protobuf.Timestamp seen_at = 24;
+  // Partner read receipt time on outbound sales/bot rows; set iff seen_by_customer is true.
+  google.protobuf.Timestamp seen_by_customer_at = 25;
+  // Partner delivery receipt time on outbound sales/bot rows; set iff received_by_customer is true.
+  google.protobuf.Timestamp received_by_customer_at = 26;
+  // Set when delivery_status is FAILED (Telegram block, platform rejection, etc.).
+  model.v1.DeliveryFailureReason failure_reason = 27;
+  // Telegram CS voice notes (ogg/opus URLs); distinct from generic audios on partner threads.
+  repeated string voices = 28;
+  // Telegram CS stickers (static webp, animated tgs, or video webm URLs).
+  repeated string stickers = 29;
+  // Telegram CS GIFs (animation attachment URLs, typically mp4).
+  repeated string gifs = 30;
+  // 1Chat conversation_messages.id of the quoted parent; 0 when not a reply.
+  int64 reply_to_message_id = 31;
+  // Shallow parent preview (one level); omitted when parent row is missing.
+  ConversationMessageInfo reply_to = 32;
+  // Excerpt from the parent message when the reply quotes a substring; empty when not a quote-reply.
+  string reply_quote_text = 33 [(validate.rules).string = { max_len: 4096 }];
+  // UTF-16 code-unit offset of reply_quote_text within the parent message content; 0 when not set.
+  int32 reply_quote_position = 34 [(validate.rules).int32 = { gte: 0 }];
+}
+
+message SeenRequest {
+  int64 conversation_id      = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated int64 message_ids = 2 [(validate.rules).repeated = { max_items: 200, unique: true,
+                                                                items: { int64: { gte: 1 } } }];
+}
+
+message SeenReply {
+  // Denormalized unread_count after sync (read from writer); use to refresh inbox without waiting on replica.
+  int64 unread_count = 1;
+}
+
+message UnseenRequest {
+  int64 conversation_id      = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated int64 message_ids = 2 [(validate.rules).repeated = { max_items: 200, unique: true,
+                                                                items: { int64: { gte: 1 } } }];
+}
+
+message UnseenReply {
+  int64 unread_count = 1;
+}
+
+message ReceivedRequest {
+  repeated int64 message_ids = 1 [(validate.rules).repeated = { min_items: 1, max_items: 200, unique: true,
+                                                                items: { int64: { gte: 1 } } }];
+}
+
+message ReceivedReply {
+  // Number of customer messages newly flipped to received.
+  int64 updated_count = 1;
+}
+
+message ListUnreceivedMessagesRequest {
+  int32 page_size = 1;
+  // Message-id cursor (newest first); omit for the first page. Pass the smallest id from the prior page.
+  int64 before_message_id = 2 [(validate.rules).int64 = { gte: 0 }];
+  // Omit or UNSPECIFIED = all platforms in the tenant inbox.
+  model.v1.Platform platform = 3 [(validate.rules).enum = { defined_only: true }];
+}
+
+message ListUnreceivedMessagesReply {
+  repeated ConversationMessageInfo messages = 1;
+  int32 page_size                           = 2;
+  // True when more unreceived rows exist older than the last item in messages.
+  bool has_next = 3;
+}
+
+message GetConversationMessagesRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size       = 2;
+  int64 before_id       = 3;
+}
+
+message GetConversationMessagesReply {
+  repeated ConversationMessageInfo messages = 1;
+  int32 page_size                           = 2;
+}
+
+enum SearchMessagesSort {
+  SEARCH_MESSAGES_SORT_UNSPECIFIED  = 0;  // FULLTEXT relevance (default)
+  SEARCH_MESSAGES_SORT_NEWEST_FIRST = 1;
+  SEARCH_MESSAGES_SORT_OLDEST_FIRST = 2;
+}
+
+message SearchMessagesRequest {
+  // Plain-text query. Results are ordered by matching customer_name first (latest
+  // message per conversation), then matching message content (FULLTEXT/LIKE).
+  // Pagination spans both blocks in that order. Boolean operators are stripped for content.
+  string query            = 1 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  int32 page_size         = 2;
+  int32 page              = 3;
+  SearchMessagesSort sort = 4 [(validate.rules).enum = { defined_only: true }];
+}
+
+message SearchMessageHit {
+  ConversationMessageInfo message = 1;
+  string customer_name            = 2;
+  string fanpage_id               = 3;
+  model.v1.Platform platform      = 4;
+  // Help-desk state of the parent conversation thread containing `message`.
+  model.v1.ConversationState state = 5;
+  // Partner-side customer id (Messenger PSID, integration external_id, etc.).
+  string external_id = 6;
+}
+
+message SearchMessagesReply {
+  // Result rows for this page. len(hits) may be less than page_size (e.g. name/content
+  // dedupe on a mixed page). Clients must use has_next to decide whether another page
+  // exists; do not infer end-of-results from len(hits) == page_size.
+  repeated SearchMessageHit hits = 1;
+  int32 page_size                = 2;
+  int32 page                     = 3;
+  // True when more hits exist beyond this page (name block, content block, or both).
+  bool has_next = 4;
+}
+
+// One row in the mixed chat timeline (newest-first pages).
+message ConversationTimelineItem {
+  oneof item {
+    ConversationMessageInfo message          = 1;
+    ConversationUpdateEventInfo update_event = 2;
+    PrivateNote private_note                 = 3;
+  }
+}
+
+message ConversationUpdateEventInfo {
+  int64 id                             = 1;
+  int64 conversation_id                = 2;
+  int64 actor_user_id                  = 3;
+  google.protobuf.Timestamp created_at = 4;
+  oneof change {
+    StateChange state    = 10;
+    ModeChange mode      = 11;
+    UserIdChange user_id = 12;
+    LabelChange label    = 13;
+  }
+  message StateChange {
+    model.v1.ConversationState old_state = 1;
+    model.v1.ConversationState new_state = 2;
+  }
+  message ModeChange {
+    model.v1.Mode old_mode = 1;
+    model.v1.Mode new_mode = 2;
+  }
+  message UserIdChange {
+    int64 old_user_id = 1;
+    int64 new_user_id = 2;
+  }
+  message LabelChange {
+    model.v1.LabelOp operator = 1;
+    string label = 2;  // normalized label title
+  }
+}
+
+message ListMessagesRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 message_size    = 2;
+  // Message-id cursor (same as GetConversationMessages before_id); omit for the newest page.
+  // Update events and private notes are loaded by send_at window, not message id: the first page has
+  // no upper time bound; later pages use before_message_id's message send_at as an exclusive upper
+  // bound so nothing falls between pages.
+  int64 before_message_id = 3;
+}
+
+message ListMessagesReply {
+  repeated ConversationTimelineItem items = 1;
+  int32 message_size                      = 2;
+}
+
+message PrivateNote {
+  int64 id                             = 1;
+  int64 conversation_id                = 2;
+  int64 user_id                        = 3;
+  string content                       = 4 [(validate.rules).string = { min_len: 0, max_len: 4096 }];
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListPrivateNotesRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size       = 2;
+  int64 before_id       = 3;
+}
+
+message ListPrivateNotesReply {
+  repeated PrivateNote notes = 1;
+  int32 page_size            = 2;
+  int64 count                = 3;
+}
+
+message CreatePrivateNoteRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  string content        = 2 [(validate.rules).string = { min_len: 1, max_len: 4096 }];
+}
+
+message CreatePrivateNoteReply {
+  PrivateNote note = 1;
+}
+
+message UpdatePrivateNoteRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      string content = 1 [(validate.rules).string = { min_len: 1, max_len: 4096 }];
+    }
+  }
+}
+
+message UpdatePrivateNoteReply {
+  PrivateNote note = 1;
+}
+
+message DeletePrivateNotesRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated int64 ids    = 2 [(validate.rules).repeated = { min_items: 1, max_items: 50, unique: true,
+                                                           items: { int64: { gte: 1 } } }];
+}
+
+message DeletePrivateNotesReply {
+  int64 deleted_count = 1;
+}
+
+// ── Help-desk live stream ──
+
+message StreamMessagesRequest {
+  int64 resume_after_message_id       = 1;
+  int64 resume_after_ai_suggestion_id = 2;
+  int64 resume_after_update_event_id  = 3;
+}
+
+message SendMessageRequest {
+  // Existing thread id from ListConversations etc. Use 0 to start (or continue) a thread identified by
+  // integration_client_id + external_id; the server creates the Conversation row if needed.
+  int64 conversation_id  = 1 [(validate.rules).int64 = { gte: 0 }];
+  string content         = 2 [(validate.rules).string = { max_len: 4096 }];
+  repeated string images = 3 [(validate.rules).repeated = { max_items: 10,
+                                                            items: { string: { max_len: 2048 } } }];
+  repeated string videos = 4 [(validate.rules).repeated = { max_items: 10,
+                                                            items: { string: { max_len: 2048 } } }];
+  string idempotency_key = 5 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+  // Required when conversation_id is 0: partner-side customer id (same as Conversation.external_id).
+  string external_id = 6 [(validate.rules).string = { max_len: 64 }];
+  // Required when conversation_id is 0: Integration.client_id for this tenant (same as Conversation.fanpage_id).
+  string integration_client_id = 7 [(validate.rules).string = { max_len: 64 }];
+  // Optional display name for the customer when the conversation row is first created.
+  string external_name = 8 [(validate.rules).string = { max_len: 256 }];
+  // Optional future send time (Unix ms UTC). 0 or omitted = send immediately.
+  int64 scheduled_at_unix_ms = 9;
+  // Optional quote-reply to an existing message in the same conversation (1Chat id).
+  int64 reply_to_message_id = 10 [(validate.rules).int64 = { gte: 0 }];
+  // Optional excerpt from the parent message; requires reply_to_message_id when set.
+  string reply_quote_text = 11 [(validate.rules).string = { max_len: 4096 }];
+  // UTF-16 code-unit offset of reply_quote_text within the parent message content.
+  int32 reply_quote_position = 12 [(validate.rules).int32 = { gte: 0 }];
+  repeated string files      = 13 [(validate.rules).repeated = { max_items: 10,
+                                                                 items: { string: { max_len: 2048 } } }];
+}
+
+message SendMessageReply {
+  int64 message_id      = 1;
+  int64 send_at_unix_ms = 2;
+  bool duplicate        = 3;
+  // Always the conversation this message belongs to (useful when the request used conversation_id = 0).
+  int64 conversation_id = 4;
+  // True when this request newly assigned the thread to the caller (conversation was unassigned).
+  bool assigned = 5;
+  // True when the message was stored as pending for future delivery.
+  bool scheduled = 6;
+}
+
+message UpdateMessageRequest {
+  int64 message_id       = 1 [(validate.rules).int64 = { gt: 0 }];
+  string content         = 2 [(validate.rules).string = { max_len: 4096 }];
+  repeated string images = 3 [(validate.rules).repeated = { max_items: 10,
+                                                            items: { string: { max_len: 2048 } } }];
+  repeated string videos = 4 [(validate.rules).repeated = { max_items: 10,
+                                                            items: { string: { max_len: 2048 } } }];
+  // Reschedule a pending message (Unix ms UTC). Only valid when delivery_status is PENDING.
+  int64 scheduled_at_unix_ms = 5;
+}
+
+message UpdateMessageReply {
+  int64 message_id        = 1;
+  int64 edited_at_unix_ms = 2;
+}
+
+message DeleteMessageRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteMessageReply {
+  int64 message_id         = 1;
+  int64 deleted_at_unix_ms = 2;
+}
+
+message AiReplySuggestionInfo {
+  int64 id                       = 1;
+  string tenant_id               = 2;
+  int64 conversation_id          = 3;
+  int64 trigger_message_id       = 4;
+  string trigger_message_content = 5;
+  string suggested_reply         = 6;
+  repeated string images         = 7;
+  repeated string videos         = 8;
+  reserved 9;
+  reserved "kb_citations", "confidence", "needs_human";
+  string model_used                    = 10;
+  google.protobuf.Timestamp created_at = 11;
+  string context_summary               = 12;
+  string context_recent                = 13;
+  string context_kb                    = 14;
+  string payload_json                  = 15;
+  model.v1.Platform platform           = 16;
+}
+
+message HelpdeskAiSuggestionEvent {
+  AiReplySuggestionInfo suggestion = 1;
+  AiSuggestionStatus status        = 2;
+}
+
+enum AiSuggestionStatus {
+  AI_SUGGESTION_STATUS_UNSPECIFIED = 0;
+  AI_SUGGESTION_STATUS_PENDING     = 1;
+  AI_SUGGESTION_STATUS_FAILED      = 2;
+  AI_SUGGESTION_STATUS_COMPLETED   = 3;
+}
+
+message ListAiReplySuggestionsRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size       = 2;
+  int64 before_id       = 3;
+}
+
+message ListAiReplySuggestionsReply {
+  repeated AiReplySuggestionInfo suggestions = 1;
+  int32 page_size                            = 2;
+  int64 count                                = 3;
+}
+
+// Keepalive for StreamMessages; ignored by clients except to hold the connection open.
+message HelpdeskStreamPing {
+  int64 server_time_unix_ms = 1;
+}
+
+// Ephemeral live-only event when an external partner marks outbound messages as seen by the end customer.
+message HelpdeskCustomerSeenEvent {
+  int64 conversation_id      = 1;
+  repeated int64 message_ids = 2;
+  bool seen                  = 3;
+  int64 seen_at_unix_ms      = 4;
+}
+
+// Ephemeral live-only event when a CS staff marks customer messages seen/unseen, so other operators
+// (and the same operator's other devices) sync read-state and unread badge without refetching.
+message HelpdeskStaffSeenEvent {
+  int64 conversation_id      = 1;
+  repeated int64 message_ids = 2;
+  int64 staff_user_id        = 3;
+  bool seen                  = 4;  // true = Seen, false = Unseen
+  int64 seen_at_unix_ms      = 5;
+  int64 unread_count         = 6;  // denormalized unread after sync
+}
+
+// Ephemeral live-only event when an external partner marks outbound messages received (delivered) by the
+// end customer, so staff clients update the delivery tick without refetching.
+message HelpdeskCustomerReceivedEvent {
+  int64 conversation_id      = 1;
+  repeated int64 message_ids = 2;
+  bool received              = 3;
+  int64 received_at_unix_ms  = 4;
+}
+
+// Ephemeral live-only event when a CS staff marks customer messages received, so other operators
+// (and the same operator's other devices) sync the delivery tick without refetching.
+message HelpdeskStaffReceivedEvent {
+  int64 conversation_id      = 1;
+  repeated int64 message_ids = 2;
+  int64 staff_user_id        = 3;
+  int64 received_at_unix_ms  = 4;
+}
+
+message HelpdeskStreamEvent {
+  oneof item {
+    HelpdeskStreamPing ping                         = 1;
+    HelpdeskAiSuggestionEvent ai_suggestion         = 2;
+    ConversationMessageInfo chat_message            = 3;
+    ConversationUpdateEventInfo update_event        = 4;
+    HelpdeskCustomerSeenEvent customer_seen         = 5;
+    HelpdeskStaffSeenEvent staff_seen               = 6;
+    HelpdeskCustomerReceivedEvent customer_received = 7;
+    HelpdeskStaffReceivedEvent staff_received       = 8;
+  }
+}
+
+// ── Scheduled Messages ──
+
+// One delivery line for a scheduled job (per recipient).
+message ScheduledDeliveryInfo {
+  int64 id                                         = 1;
+  int64 recipient_id                               = 2;  // 0 = snapshot-only (e.g. legacy backfill), optional in API via zero
+  string snapshot_name                             = 3;
+  string snapshot_platform_id                      = 4;
+  model.v1.ScheduledDeliveryStatus delivery_status = 5;
+  string error_message                             = 6;
+  google.protobuf.Timestamp sent_at                = 7;
+  string snapshot_picture_url                      = 8 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+  model.v1.DeliveryFailureReason failure_reason    = 9;
+  int32 platform_error_code                        = 10;
+}
+
+message ScheduledMessageInfo {
+  int64 id                                  = 1;
+  string content                            = 2;
+  google.protobuf.Timestamp scheduled_at    = 6;
+  model.v1.ScheduledMessageStatus status    = 7;
+  model.v1.RepeatType repeat                = 8;
+  string error_message                      = 9;
+  google.protobuf.Timestamp sent_at         = 10;
+  google.protobuf.Timestamp created_at      = 11;
+  google.protobuf.Timestamp updated_at      = 12;
+  repeated ScheduledDeliveryInfo deliveries = 13;
+  repeated string images                    = 14;
+  repeated string videos                    = 15;
+  model.v1.Platform platform                = 16;
+}
+
+message CreateScheduledMessageRequest {
+  string content                         = 1 [(validate.rules).string = { min_len: 1, max_len: 4096 }];
+  google.protobuf.Timestamp scheduled_at = 2 [(validate.rules).timestamp = { required: true }];
+  model.v1.RepeatType repeat             = 3;
+  repeated int64 recipient_ids           = 4 [(validate.rules).repeated = { min_items: 1, max_items: 50, unique: true,
+                                                                            items: { int64: { gte: 1 } } }];
+  repeated string images                 = 5 [(validate.rules).repeated = { max_items: 10,
+                                                                            items: { string: { max_len: 2048 } } }];
+  repeated string videos                 = 6 [(validate.rules).repeated = { max_items: 10,
+                                                                            items: { string: { max_len: 2048 } } }];
+}
+
+message CreateScheduledMessageReply {
+  ScheduledMessageInfo message = 1;
+}
+
+message ListScheduledMessagesRequest {
+  int32 page_size                               = 1;
+  int32 page                                    = 2;
+  model.v1.ScheduledMessageStatus status_filter = 3;  // 0 = all
+  // Case-insensitive match on message body and/or recipient name/platform_id in recipient_ids.
+  string search_query = 4 [(validate.rules).string = { max_len: 256, ignore_empty: true }];
+}
+
+message ListScheduledMessagesReply {
+  repeated ScheduledMessageInfo messages = 1;
+  int32 page_size                        = 2;
+  int32 page                             = 3;
+  int64 count                            = 4;
+}
+
+message GetScheduledMessageRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message GetScheduledMessageReply {
+  ScheduledMessageInfo message = 1;
+}
+
+message UpdateScheduledMessageRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      string content                         = 1;
+      google.protobuf.Timestamp scheduled_at = 2;
+      model.v1.RepeatType repeat             = 3;
+      model.v1.ScheduledMessageStatus status = 4;
+    }
+  }
+}
+
+message UpdateScheduledMessageReply {}
+
+message DeleteScheduledMessageRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteScheduledMessageReply {}
+
+// ---- Recipients (tenant address book) ----
+
+message RecipientInfo {
+  int64 id                             = 1;
+  string name                          = 2 [(validate.rules).string = { min_len: 0, max_len: 512 }];
+  string platform_id                   = 3 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  // Messenger profile photo URL when known (Graph + page token).
+  string picture_url         = 6 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+  model.v1.Platform platform = 7;
+  // Required when platform is EXTERNAL: Integration.client_id for this tenant.
+  // Required when platform is TELEGRAM: cs_user_id (decimal string, same as Conversation.fanpage_id).
+  string integration_client_id = 8 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+}
+
+message ListRecipientsRequest {
+  int32 page_size = 1;
+  int32 page      = 2;
+}
+
+message ListRecipientsReply {
+  repeated RecipientInfo recipients = 1;
+  int32 page_size                   = 2;
+  int32 page                        = 3;
+  int64 count                       = 4;
+}
+
+message CreateRecipientRequest {
+  // Single-recipient mode when `items` is empty: these fields are required (platform_id non-empty).
+  string name        = 1 [(validate.rules).string = { min_len: 0, max_len: 512 }];
+  string platform_id = 2 [(validate.rules).string = { max_len: 256 }];
+  // Explicit URL from client — when empty, backend may fetch via Messenger Graph API.
+  string picture_url = 3 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+  // Facebook page id hints which page token to try first when resolving avatar (PSIDs are page-scoped).
+  string facebook_page_id = 4 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+  // Multi-recipient mode: 1–50 entries in one RPC; order matches `CreateRecipientReply.recipients`.
+  // When set (non-empty), top-level name/platform_id/picture_url/facebook_page_id are ignored.
+  repeated Item items        = 5 [(validate.rules).repeated = { max_items: 50 }];
+  model.v1.Platform platform = 6;
+  // Required when platform is EXTERNAL.
+  string integration_client_id = 7 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+  message Item {
+    string name                  = 1 [(validate.rules).string = { min_len: 0, max_len: 512 }];
+    string platform_id           = 2 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+    string picture_url           = 3 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+    string facebook_page_id      = 4 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+    model.v1.Platform platform   = 5;
+    string integration_client_id = 6 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+  }
+}
+
+message CreateRecipientReply {
+  // Single mode: set. Multi mode: same as recipients[0] for convenience (optional).
+  RecipientInfo recipient = 1;
+  // Multi mode: same order as request.items; empty in single mode.
+  repeated RecipientInfo recipients = 2;
+}
+
+message UpdateRecipientRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      string name        = 1;
+      string platform_id = 2;
+      string picture_url = 3;
+    }
+  }
+}
+
+message UpdateRecipientReply {}
+
+message DeleteRecipientRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteRecipientReply {}
+
+// ---- Partner integrations (HMAC client_id + secret) ----
+
+message IntegrationInfo {
+  int64 id                             = 1;
+  string name                          = 2;
+  string client_id                     = 3;
+  string secret_prefix                 = 4;
+  string webhook_endpoint              = 5;
+  model.v1.Status status               = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  string get_user_profile_endpoint     = 9;
+  // myid salesperson user id (x-user-id) stored when the integration was created.
+  int64 user_id          = 10;
+  string back_office_url = 11;
+}
+
+message CreateIntegrationRequest {
+  string name                      = 1 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  string webhook_endpoint          = 2 [(validate.rules).string = { min_len: 1, max_len: 2048 }];
+  string get_user_profile_endpoint = 3 [(validate.rules).string = { max_len: 2048 }];
+  string back_office_url           = 4 [(validate.rules).string = { max_len: 2048 }];
+}
+
+message CreateIntegrationReply {
+  IntegrationInfo integration = 1;
+  string secret_key           = 2;
+}
+
+message ListIntegrationsRequest {
+  int32 page_size                   = 1;
+  int32 page                        = 2;
+  repeated model.v1.Status statuses = 3;
+}
+
+message ListIntegrationsReply {
+  repeated IntegrationInfo integrations = 1;
+  int32 page_size                       = 2;
+  int32 page                            = 3;
+  int64 count                           = 4;
+}
+
+message UpdateIntegrationRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      string name                      = 1;
+      string webhook_endpoint          = 2;
+      model.v1.Status status           = 3;
+      string get_user_profile_endpoint = 4;
+      string back_office_url           = 5;
+    }
+  }
+}
+
+message UpdateIntegrationReply {}
+
+message RotateIntegrationSecretRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message RotateIntegrationSecretReply {
+  IntegrationInfo integration = 1;
+  string secret_key           = 2;
+}
+
+message DeleteIntegrationRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteIntegrationReply {}
+
+// ── Telegram CS account (Telegram Business + Bot API connector) ──
+
+// TelegramCsAccountInfo is the tenant-facing view of a Telegram Business CS connector.
+// bot_token and encrypted_bot_token are never returned; token_prefix is the UI mask.
+message TelegramCsAccountInfo {
+  int64 id                                = 1;
+  string display_name                     = 2;
+  model.v1.TelegramCsAccountStatus status = 3;
+  string bot_username                     = 4;
+  string cs_username                      = 5;
+  string token_prefix                     = 6;
+  // True when business_connection_id is set and status is ACTIVE.
+  bool business_connection_linked      = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message CreateTelegramCsAccountRequest {
+  string display_name = 1 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  // Plain-text bot token from @BotFather; encrypted at rest; never returned.
+  string bot_token = 2 [(validate.rules).string = { min_len: 1, max_len: 512 }];
+}
+
+message CreateTelegramCsAccountReply {
+  TelegramCsAccountInfo account = 1;
+}
+
+message ListTelegramCsAccountsRequest {
+  int32 page_size                                    = 1;
+  int32 page                                         = 2;
+  repeated model.v1.TelegramCsAccountStatus statuses = 3;
+}
+
+message ListTelegramCsAccountsReply {
+  repeated TelegramCsAccountInfo accounts = 1;
+  int32 page_size                         = 2;
+  int32 page                              = 3;
+  int64 count                             = 4;
+}
+
+message UpdateTelegramCsAccountRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2;
+
+  message Change {
+    oneof field {
+      string display_name                     = 1;
+      model.v1.TelegramCsAccountStatus status = 2;
+    }
+  }
+}
+
+message UpdateTelegramCsAccountReply {}
+
+message DeleteTelegramCsAccountRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteTelegramCsAccountReply {}
+
+message GetDashboardRequest {
+  string fanpage_id = 1;
+}
+
+// Partner user profile as returned by the integration's Get user profile HTTP API
+// (see internal/externaluserprofile).
+message PartnerCustomerProfile {
+  string external_id             = 1;
+  string name                    = 2;
+  string display_name            = 3;
+  string phone_number            = 4;
+  string email                   = 5;
+  string facebook_psid           = 6;
+  string messenger_handle        = 7;
+  string telegram_user_id        = 8;
+  string telegram_username       = 9;
+  map<string, string> attributes = 10;
+  string avatar                  = 11;  // URL for helpdesk customer avatar
+  string country                 = 12;
+  string client_id               = 13;
+  string client_name             = 14;
+}
+
+message GetCustomerProfileRequest {
+  string external_id = 1;
+}
+
+message GetCustomerProfileReply {
+  PartnerCustomerProfile profile = 1;
+  string back_office_url         = 2;
+}
+
+message GetDashboardReply {
+  int64 total_messages      = 1;
+  double total_messages_pct = 2;
+
+  int64 active_customers      = 3;
+  double active_customers_pct = 4;
+
+  double registration_rate     = 5;
+  double registration_rate_pct = 6;
+
+  double deposit_rate     = 7;
+  double deposit_rate_pct = 8;
+
+  double avg_response_seconds = 9;
+  double avg_response_change  = 10;
+}
+
+// ── Dashboard analytics (shared filter + section RPCs) ──
+
+// "Khoảng thời gian" preset for the dashboard filter.
+enum DashboardTimePreset {
+  DASHBOARD_TIME_PRESET_UNSPECIFIED  = 0;  // treated as LAST_7_DAYS
+  DASHBOARD_TIME_PRESET_TODAY        = 1;
+  DASHBOARD_TIME_PRESET_LAST_7_DAYS  = 2;
+  DASHBOARD_TIME_PRESET_LAST_30_DAYS = 3;
+  DASHBOARD_TIME_PRESET_CUSTOM       = 4;  // requires from_time / to_time
+  DASHBOARD_TIME_PRESET_1_SHIFT      = 5;  // requires from_time / to_time as one 12h shift in GMT+7
+}
+
+message DashboardTimeRange {
+  DashboardTimePreset preset = 1 [(validate.rules).enum = { defined_only: true }];
+  // Date range (client tự gửi from_time/to_time theo UTC)
+  google.protobuf.Timestamp from_time = 6;
+  google.protobuf.Timestamp to_time   = 7;
+  // When preset == DASHBOARD_TIME_PRESET_1_SHIFT, client must pass one of:
+  // - 10:00 -> 22:00 (same GMT+7 date) — shift 1
+  // - 22:00 -> 10:00 (next GMT+7 date) — shift 2
+  // Server validates this shape in GMT+7, then converts to UTC for DB queries.
+}
+
+// "Loại xử lý" filter dropdown.
+enum DashboardProcessingType {
+  DASHBOARD_PROCESSING_TYPE_UNSPECIFIED   = 0;  // Tất cả
+  DASHBOARD_PROCESSING_TYPE_AI_ONLY       = 1;  // BOT replies present, no SALES replies
+  DASHBOARD_PROCESSING_TYPE_HUMAN_ONLY    = 2;  // SALES replies present, no BOT replies
+  DASHBOARD_PROCESSING_TYPE_AI_PLUS_HUMAN = 3;  // Both BOT and SALES replies present
+}
+
+// Shared request body for every GetDashboard* RPC. Clients build it once and fan out.
+message DashboardFilter {
+  DashboardTimeRange time_range = 1;
+  // "Nguồn Khách Hàng": empty = all. PLATFORM_FACEBOOK = Facebook, PLATFORM_EXTERNAL = Webapp/partner.
+  repeated model.v1.Platform platforms = 2 [(validate.rules).repeated = { max_items: 8,
+                                                                          items: { enum: { defined_only: true } } }];
+  // "Nhân viên CS": myid user ids; empty = all staff.
+  repeated int64 cs_user_ids              = 3 [(validate.rules).repeated = { max_items: 100, unique: true,
+                                                                             items: { int64: { gt: 0 } } }];
+  DashboardProcessingType processing_type = 4 [(validate.rules).enum = { defined_only: true }];
+}
+
+// Image 1: Chất lượng hội thoại — six headline cards.
+message GetDashboardConversationQualityReply {
+  int64 total_conversations             = 1;
+  double total_conversations_change_pct = 2;
+  int64 satisfied_customers             = 3;
+  double satisfied_change_pct           = 4;
+  int64 neutral_customers               = 5;
+  double neutral_change_pct             = 6;
+  int64 dissatisfied_customers          = 7;
+  double dissatisfied_change_pct        = 8;
+  // % share of conversations with state RESOLVED.
+  double resolution_rate            = 9;
+  double resolution_rate_change_pct = 10;
+  // % share of conversations transferred to Telegram (mode TELEGRAM / AUTO_TELEGRAM).
+  double transfer_rate            = 11;
+  double transfer_rate_change_pct = 12;
+}
+
+// Image 6: Phân bổ cảm xúc khách hàng — pie slices (explicit player feedback).
+message GetDashboardSentimentReply {
+  int64 satisfied    = 1;
+  int64 neutral      = 2;
+  int64 dissatisfied = 3;
+}
+
+// Image 7: Phân tích khiếu nại — top complaint categories.
+// NOTE: complaint categorization not yet persisted; items are empty until backend fills.
+message DashboardComplaintItem {
+  int32 rank        = 1;
+  string title      = 2;  // e.g. "Không nhận được phản hồi"
+  int64 count       = 3;
+  double change_pct = 4;
+  // 0..1 fill ratio for the right-column sparkline / bar — server-precomputed for UI.
+  double intensity = 5;
+}
+
+message GetDashboardComplaintsReply {
+  repeated DashboardComplaintItem items = 1;
+}
+
+// Image 8: Thời gian xử lý hỗ trợ — values in seconds.
+message GetDashboardTimingMetricsReply {
+  double avg_first_response_seconds = 1;  // Thời gian phản hồi TB
+  double avg_handle_seconds         = 2;  // Thời gian xử lý TB
+  double avg_resolve_seconds        = 3;  // Thời gian giải quyết TB
+  double fastest_resolve_seconds    = 4;  // Giải quyết nhanh nhất
+  double slowest_resolve_seconds    = 5;  // Giải quyết chậm nhất
+}
+
+// Image 9: Xu hướng thời gian xử lý — bucketed line chart.
+message DashboardTimingTrendPoint {
+  int64 bucket_start_unix_ms        = 1;
+  double avg_first_response_seconds = 2;
+  double avg_handle_seconds         = 3;
+  double avg_resolve_seconds        = 4;
+}
+
+message GetDashboardTimingTrendReply {
+  repeated DashboardTimingTrendPoint points = 1;
+}
+
+// Image 10: Bảng xếp hạng nhân viên CS — leaderboard cards.
+message DashboardStaffRankInfo {
+  int32 rank                  = 1;
+  int64 user_id               = 2;
+  string display_name         = 3;
+  string avatar_url           = 4;
+  string initials             = 5;  // e.g. "NA" — server-precomputed for badge avatar
+  bool top_performer          = 6;
+  int64 conversations_handled = 7;
+  double avg_response_seconds = 8;
+  // 0–5 score (Độ hài lòng khách hàng). 0 until sentiment pipeline lands.
+  double satisfaction_score = 9;
+  // % (Tỷ lệ giải quyết).
+  double resolution_rate = 10;
+  // % (Phản hồi tích cực). 0 until sentiment pipeline lands.
+  double positive_feedback_rate = 11;
+}
+
+message GetDashboardStaffRankingReply {
+  repeated DashboardStaffRankInfo staff = 1;
+}
+
+// Image 11: Phân tích dữ liệu giữa AI và con người.
+message GetDashboardAiHumanAnalyticsReply {
+  int64 ai_only_handled         = 1;  // AI tự động xử lý
+  int64 human_handled           = 2;  // Nhân viên xử lý
+  int64 ai_plus_human           = 3;  // Kết hợp AI + Nhân viên
+  int64 transferred_to_telegram = 4;  // Chuyển lên Telegram
+  int64 staff_takeover_count    = 5;  // Nhân viên tiếp quản
+  // % AI success rate (Tỷ lệ thành công của AI). Definition pending — see implementation notes.
+  double ai_success_rate = 6;
+  // % staff intervention rate (Can thiệp của nhân viên).
+  double staff_intervention_rate = 7;
+}
+
+// Image 12: Khung giờ khách nhắn nhiều nhất (24 buckets, hour 0..23).
+message DashboardHourlyBucket {
+  int32 hour          = 1;  // 0..23
+  int64 message_count = 2;
+}
+
+message GetDashboardPeakHoursReply {
+  repeated DashboardHourlyBucket buckets = 1;
+}
+
+// Image 13: Hiệu suất AI.
+// NOTE: AI quality scoring + fallback/failure tracking not yet persisted; values are 0 until backend fills.
+message GetDashboardAiPerformanceReply {
+  double quality_score             = 1;  // 0–5 (Chất lượng phản hồi)
+  double quality_change_pct        = 2;
+  double avg_confidence            = 3;  // 0–100 (Điểm độ tin cậy TB)
+  double avg_confidence_change_pct = 4;
+  double fallback_rate             = 5;  // % (Tỷ lệ dự phòng)
+  double fallback_rate_change_pct  = 6;
+  double failure_rate              = 7;  // % (Phản hồi thất bại)
+  double failure_rate_change_pct   = 8;
+  int32 retraining_suggestions     = 9;  // Đề xuất huấn luyện lại
+}
+
+// CS staff dropdown ("Nhân viên CS"). Backed by myid ListUsers scoped to x-tenant-id.
+message ListDashboardCsStaffRequest {
+  int32 page_size     = 1;
+  int32 page          = 2;
+  string search_query = 3 [(validate.rules).string = { ignore_empty: true, max_len: 256 }];
+}
+
+message DashboardCsStaffInfo {
+  int64 user_id       = 1;
+  string display_name = 2;
+  string avatar_url   = 3;
+}
+
+message ListDashboardCsStaffReply {
+  repeated DashboardCsStaffInfo staff = 1;
+  int32 page_size                     = 2;
+  int32 page                          = 3;
+  int64 count                         = 4;
+}
+
+// ── QA evaluation (external threads; chat history via ListMessages / GetConversation) ──
+
+message QAEvaluationFilter {
+  DashboardTimeRange time_range             = 1;
+  repeated int64 cs_user_ids                = 2 [(validate.rules).repeated = { max_items: 100, unique: true,
+                                                                               items: { int64: { gt: 0 } } }];
+  model.v1.QAEvaluationStatus status_filter = 3 [(validate.rules).enum = { defined_only: true }];
+  string search_query                       = 4 [(validate.rules).string = { ignore_empty: true, max_len: 256 }];
+}
+
+message GetQAEvaluationRubricRequest {}
+
+message QAEvaluationCriterionDef {
+  model.v1.QAEvaluationCriterion criterion = 1;
+  string title                             = 2;
+  string description                       = 3;
+  int32 max_score                          = 4;
+  repeated int32 allowed_scores            = 5;
+}
+
+message QAEvaluationCriticalErrorDef {
+  model.v1.QAEvaluationCriticalError error = 1;
+  string title                             = 2;
+  string description                       = 3;
+  int32 deduction                          = 4;
+}
+
+message QAEvaluationRatingTierDef {
+  model.v1.QAEvaluationRatingTier tier = 1;
+  string label                         = 2;
+  int32 min_score                      = 3;
+  int32 max_score                      = 4;
+}
+
+message GetQAEvaluationRubricReply {
+  repeated QAEvaluationCriterionDef criteria      = 1;
+  repeated QAEvaluationCriticalErrorDef errors    = 2;
+  repeated QAEvaluationRatingTierDef rating_tiers = 3;
+}
+
+message ListQAEvaluationConversationsRequest {
+  QAEvaluationFilter filter = 1;
+  int32 page_size           = 2;
+  int32 page                = 3;
+}
+
+message QAEvaluationConversationItem {
+  int64 conversation_id                     = 1;
+  string external_id                        = 2;
+  string customer_name                      = 3;
+  int64 cs_user_id                          = 4;
+  string cs_display_name                    = 5;
+  google.protobuf.Timestamp last_message_at = 6;
+  model.v1.QAEvaluationStatus status        = 7;
+  int32 total_score                         = 8;
+  // Concatenated content of the first and second customer messages (space-separated).
+  string first_messages_content = 9;
+  // Customer satisfaction rating submitted by the player for this conversation; UNSPECIFIED when none.
+  model.v1.CustomerSentiment satisfaction = 10;
+  // Total number of messages in this conversation.
+  int64 message_count        = 11;
+  model.v1.Platform platform = 12;
+}
+
+message ListQAEvaluationConversationsReply {
+  repeated QAEvaluationConversationItem conversations = 1;
+  int32 page_size                                     = 2;
+  int32 page                                          = 3;
+  int64 count                                         = 4;
+  int64 pending_count                                 = 5;
+}
+
+message GetQAEvaluationRequest {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message QAEvaluationCriterionScore {
+  model.v1.QAEvaluationCriterion criterion = 1;
+  int32 score                              = 2;
+}
+
+message QAEvaluationInfo {
+  int64 id                                                    = 1;
+  int64 conversation_id                                       = 2;
+  int64 evaluator_user_id                                     = 3;
+  int64 cs_user_id                                            = 4;
+  repeated QAEvaluationCriterionScore criteria_scores         = 5;
+  repeated model.v1.QAEvaluationCriticalError critical_errors = 6;
+  int32 total_score                                           = 7;
+  model.v1.QAEvaluationStatus status                          = 8;
+  string comment                                              = 9;
+  google.protobuf.Timestamp evaluated_at                      = 10;
+  model.v1.Platform platform                                  = 11;
+}
+
+message GetQAEvaluationReply {
+  QAEvaluationInfo evaluation = 1;
+}
+
+message SubmitQAEvaluationRequest {
+  int64 conversation_id                                       = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated QAEvaluationCriterionScore criteria_scores         = 2 [(validate.rules).repeated = { min_items: 7, max_items: 7 }];
+  repeated model.v1.QAEvaluationCriticalError critical_errors = 3 [(validate.rules).repeated = { max_items: 9, unique: true,
+                                                                                                 items: { enum: { defined_only: true } } }];
+  model.v1.QAEvaluationStatus status                          = 4 [(validate.rules).enum = { defined_only: true,
+                                                                                             not_in: [ 0, 1 ] }];
+  string comment                                              = 5 [(validate.rules).string = { ignore_empty: true, max_len: 4096 }];
+}
+
+message SubmitQAEvaluationReply {
+  QAEvaluationInfo evaluation = 1;
+}
+
+message QAEvaluationStaffScoreInfo {
+  int64 user_id                 = 1;
+  string display_name           = 2;
+  int64 conversations_evaluated = 3;
+  int32 critical_error_count    = 4;
+  double avg_score              = 5;
+  // Absolute point difference vs the previous equal-length period (avg_score_cur - avg_score_prev).
+  // 0 when the previous period has no evaluations for this staff member.
+  double score_change = 6;
+}
+
+message GetQAEvaluationStaffRankingReply {
+  repeated QAEvaluationStaffScoreInfo staff = 1;
+  double team_avg_score                     = 2;
+}
+
+message QAEvaluationCriticalErrorItem {
+  model.v1.QAEvaluationCriticalError error = 1;
+  int64 cs_user_id                         = 2;
+  int64 conversation_id                    = 3;
+  google.protobuf.Timestamp evaluated_at   = 4;
+}
+
+message ListQAEvaluationCriticalErrorsReply {
+  repeated QAEvaluationCriticalErrorItem items = 1;
+}
+
+message ChatGroupInfo {
+  int64 id                                  = 1;
+  string name                               = 2;
+  string description                        = 3;
+  model.v1.ChatGroupVisibility visibility   = 4;
+  int64 created_by_user_id                  = 5;
+  google.protobuf.Timestamp last_message_at = 6;
+  int64 last_message_id                     = 7;
+  google.protobuf.Timestamp created_at      = 8;
+  google.protobuf.Timestamp updated_at      = 9;
+  // Days to retain messages from created_at; 0 = keep forever. Default 7.
+  int32 retention_days = 10 [(validate.rules).int32 = { gte: 0, lte: 3650 }];
+}
+
+message MyChatGroupInfo {
+  ChatGroupInfo group            = 1;
+  model.v1.ChatGroupRole my_role = 2;
+  // Total sidebar unread: main channel + all topic threads.
+  int64 unread_count = 3;
+  // Latest message in the main channel (for group list glance). Omitted when the main channel has no messages.
+  ChatGroupMessageInfo last_message = 4;
+  // True when the group's global last message is a thread reply (not main channel / topic top-level).
+  bool last_message_in_thread = 5;
+  // Parent message id when last_message_in_thread is true; for navigation into the thread.
+  int64 last_message_thread_root_id = 6;
+}
+
+message CreateChatGroupRequest {
+  string name                             = 1 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+  string description                      = 2 [(validate.rules).string = { ignore_empty: true, max_len: 4096 }];
+  model.v1.ChatGroupVisibility visibility = 3 [(validate.rules).enum = { defined_only: true,
+                                                                         not_in: [ 0 ] }];
+  // Omit to use default 7; 0 = keep forever.
+  optional int32 retention_days = 4 [(validate.rules).int32 = { gte: 0, lte: 3650 }];
+}
+
+message CreateChatGroupReply {
+  MyChatGroupInfo group = 1;
+}
+
+message UpdateChatGroupRequest {
+  int64 id                = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2 [(validate.rules).repeated = { min_items: 1, max_items: 10 }];
+
+  message Change {
+    oneof field {
+      string name                             = 1 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+      string description                      = 2 [(validate.rules).string = { max_len: 4096 }];
+      model.v1.ChatGroupVisibility visibility = 3 [(validate.rules).enum = { defined_only: true,
+                                                                             not_in: [ 0 ] }];
+      // 0 = keep forever.
+      int32 retention_days = 4 [(validate.rules).int32 = { gte: 0, lte: 3650 }];
+    }
+  }
+}
+
+message UpdateChatGroupReply {
+  MyChatGroupInfo group = 1;
+}
+
+message DeleteChatGroupRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteChatGroupReply {}
+
+message ListMyChatGroupsRequest {
+  int32 page_size = 1;
+  int32 page      = 2;
+}
+
+message ListMyChatGroupsReply {
+  repeated MyChatGroupInfo groups = 1;
+  int32 page_size                 = 2;
+  int32 page                      = 3;
+  int64 count                     = 4;
+}
+
+message GetChatGroupRequest {
+  int64 id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message GetChatGroupReply {
+  MyChatGroupInfo group = 1;
+}
+
+message ChatGroupMemberInfo {
+  int64 user_id                       = 1;
+  model.v1.ChatGroupRole role         = 2;
+  google.protobuf.Timestamp joined_at = 3;
+  // True when the member is anonymous (OWNER/ADMIN only). Owner/admin see this with
+  // real user_id; ListChatGroupMembers omits anonymous rows for MEMBER / public viewers.
+  bool anonymous = 4;
+}
+
+message AddChatGroupMemberRequest {
+  int64 group_id              = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 user_id               = 2 [(validate.rules).int64 = { gt: 0 }];
+  model.v1.ChatGroupRole role = 3;  // defaults to MEMBER; OWNER cannot be assigned via add
+  // When true, add as an anonymous ADMIN (MEMBER+anonymous rejected; OWNER via add
+  // is already rejected). JoinChatGroup always creates non-anonymous membership.
+  bool anonymous = 4;
+}
+
+message AddChatGroupMemberReply {
+  ChatGroupMemberInfo member = 1;
+}
+
+message RemoveChatGroupMemberRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 user_id  = 2 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message RemoveChatGroupMemberReply {}
+
+message UpdateChatGroupMemberRoleRequest {
+  int64 group_id              = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 user_id               = 2 [(validate.rules).int64 = { gt: 0 }];
+  model.v1.ChatGroupRole role = 3 [(validate.rules).enum = { defined_only: true,
+                                                             not_in: [ 0 ] }];
+}
+
+message UpdateChatGroupMemberRoleReply {
+  ChatGroupMemberInfo member = 1;
+}
+
+message UpdateChatGroupMemberRequest {
+  int64 group_id          = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 user_id           = 2 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 3 [(validate.rules).repeated = { min_items: 1, max_items: 10 }];
+
+  message Change {
+    oneof field {
+      model.v1.ChatGroupRole role = 1 [(validate.rules).enum = { defined_only: true,
+                                                                 not_in: [ 0 ] }];
+      // Live membership flag only; does not rewrite historical sender_anonymous.
+      // OWNER/ADMIN only; setting anonymous on MEMBER is rejected.
+      bool anonymous = 2;
+    }
+  }
+}
+
+message UpdateChatGroupMemberReply {
+  ChatGroupMemberInfo member = 1;
+}
+
+message LeaveChatGroupRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message LeaveChatGroupReply {}
+
+message ListChatGroupMembersRequest {
+  int64 group_id  = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size = 2;
+  int32 page      = 3;
+}
+
+message ListChatGroupMembersReply {
+  repeated ChatGroupMemberInfo members = 1;
+  int32 page_size                      = 2;
+  int32 page                           = 3;
+  int64 count                          = 4;
+}
+
+message JoinChatGroupRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message JoinChatGroupReply {
+  MyChatGroupInfo group = 1;
+}
+
+message ChatGroupTopicInfo {
+  int64 id                                  = 1;
+  int64 group_id                            = 2;
+  string name                               = 3;
+  string description                        = 4;
+  int64 created_by_user_id                  = 5;
+  google.protobuf.Timestamp last_message_at = 6;
+  int64 last_message_id                     = 7;
+  google.protobuf.Timestamp created_at      = 8;
+  google.protobuf.Timestamp updated_at      = 9;
+}
+
+message MyChatGroupTopicInfo {
+  ChatGroupTopicInfo topic = 1;
+  int64 unread_count       = 2;
+  // Latest message in the topic thread (for topic list glance). Omitted when the topic has no messages.
+  ChatGroupMessageInfo last_message = 3;
+}
+
+message CreateChatGroupTopicRequest {
+  int64 group_id     = 1 [(validate.rules).int64 = { gt: 0 }];
+  string name        = 2 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+  string description = 3 [(validate.rules).string = { ignore_empty: true, max_len: 4096 }];
+}
+
+message CreateChatGroupTopicReply {
+  MyChatGroupTopicInfo topic = 1;
+}
+
+message UpdateChatGroupTopicRequest {
+  int64 topic_id          = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated Change changes = 2 [(validate.rules).repeated = { min_items: 1, max_items: 10 }];
+
+  message Change {
+    oneof field {
+      string name        = 1 [(validate.rules).string = { min_len: 1, max_len: 128 }];
+      string description = 2 [(validate.rules).string = { max_len: 4096 }];
+    }
+  }
+}
+
+message UpdateChatGroupTopicReply {
+  MyChatGroupTopicInfo topic = 1;
+}
+
+message DeleteChatGroupTopicRequest {
+  int64 topic_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteChatGroupTopicReply {}
+
+message ListChatGroupTopicsRequest {
+  int64 group_id  = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size = 2;
+  int32 page      = 3;
+}
+
+message ListChatGroupTopicsReply {
+  // topics is paginated with the main channel first (topic.id = 0); count includes it.
+  repeated MyChatGroupTopicInfo topics = 1;
+  int32 page_size                      = 2;
+  int32 page                           = 3;
+  int64 count                          = 4;
+}
+
+message GetChatGroupTopicRequest {
+  int64 topic_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message GetChatGroupTopicReply {
+  MyChatGroupTopicInfo topic = 1;
+}
+
+message MessageThreadSummary {
+  int64 root_message_id                   = 1;
+  int64 reply_count                       = 2;
+  google.protobuf.Timestamp last_reply_at = 3;
+  int64 last_reply_message_id             = 4;
+  // Caller-specific unread thread replies (excludes own messages). Omitted/zero when fully read.
+  int64 unread_count = 5;
+}
+
+message MessageReaction {
+  int64 id      = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 user_id = 2 [(validate.rules).int64 = { gt: 0 }];
+  string emoji  = 3 [(validate.rules).string = { min_len: 1, max_len: 64 }];
+}
+
+message ChatGroupMessageInfo {
+  int64 id                             = 1;
+  int64 group_id                       = 2;
+  int64 sender_user_id                 = 3;
+  string sender_username               = 4;
+  string content                       = 5;
+  repeated string images               = 6;
+  repeated string videos               = 7;
+  repeated string files                = 8;
+  repeated int64 mentioned_user_ids    = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp edited_at  = 11;
+  google.protobuf.Timestamp deleted_at = 12;
+  // 0 = main channel; > 0 = topic thread.
+  int64 topic_id = 13;
+  // Per-member delivery ACKs (receipt = xác nhận đã nhận/đã đọc, not biên lai thanh toán).
+  // Active anonymous members never appear in these lists/counts for any viewer (owner/admin included).
+  // Anonymous members still ACK via MarkChatGroupRead / MarkChatGroupReceived; unread clears via RPC reply.
+  int64 received_count                    = 14;
+  int64 read_count                        = 15;
+  repeated int64 received_by_user_ids     = 16;
+  repeated int64 read_by_user_ids         = 17;
+  ChatGroupDeliveryStatus delivery_status = 18;
+  ChatGroupMessageInfo reply_to           = 19;
+  // 0 = top-level; on thread replies, the parent message id.
+  int64 message_thread_root_id = 20;
+  // Set on top-level messages when reply_count > 0.
+  MessageThreadSummary message_thread = 21;
+  // Resolved from mysticker at send time so the UI can render without an extra call.
+  // sticker_url may be empty if lookup failed; sticker_id is always preserved when set.
+  int64 sticker_id                    = 22;
+  string sticker_url                  = 23 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+  repeated MessageReaction reactions  = 24;
+  repeated LinkPreview link_previews  = 25;
+  bool pinned                         = 26;
+  google.protobuf.Timestamp pinned_at = 27;
+  int64 pinned_by_user_id             = 28;
+  // Set when this message forwards a shared snapshot (see ShareMessage / GetSharedMessage).
+  string shared_message_hash = 29 [(validate.rules).string = { ignore_empty: true, min_len: 1, max_len: 64 }];
+  // Excerpt from the parent message when the reply quotes a substring; empty when not a quote-reply.
+  string reply_quote_text = 30 [(validate.rules).string = { max_len: 4096 }];
+  // UTF-16 code-unit offset of reply_quote_text within the parent message content; 0 when not set.
+  int32 reply_quote_position = 31 [(validate.rules).int32 = { gte: 0 }];
+  // Original name/size per uploaded file (matched to `files` by URL).
+  repeated FileMeta file_metas = 32;
+  // True when the sender targeted @all (active members at send/edit time).
+  // When true, mentioned_user_ids is omitted on the wire; clients render @all from this flag.
+  bool mentions_all = 33;
+  // Snapshot at send time. When true, wire hydrate always sets sender_user_id=0 and
+  // sender_username to the group name (main) or topic name (thread); nobody (including
+  // owner/admin/self) sees the real author on the wire.
+  bool sender_anonymous = 34;
+}
+
+// Aggregate tick for the sender UI: sent → received (ACK) → read.
+enum ChatGroupDeliveryStatus {
+  CHAT_GROUP_DELIVERY_STATUS_UNSPECIFIED = 0;
+  CHAT_GROUP_DELIVERY_STATUS_SENT        = 1;
+  CHAT_GROUP_DELIVERY_STATUS_RECEIVED    = 2;
+  CHAT_GROUP_DELIVERY_STATUS_READ        = 3;
+}
+
+message SendChatGroupMessageRequest {
+  int64 group_id                    = 1 [(validate.rules).int64 = { gt: 0 }];
+  string content                    = 2 [(validate.rules).string = { max_len: 4096 }];
+  repeated string images            = 3 [(validate.rules).repeated = { max_items: 10,
+                                                                       items: { string: { max_len: 2048 } } }];
+  repeated string videos            = 4 [(validate.rules).repeated = { max_items: 10,
+                                                                       items: { string: { max_len: 2048 } } }];
+  repeated string files             = 5 [(validate.rules).repeated = { max_items: 10,
+                                                                       items: { string: { max_len: 2048 } } }];
+  repeated int64 mentioned_user_ids = 6 [(validate.rules).repeated = { max_items: 100, unique: true,
+                                                                       items: { int64: { gt: 0 } } }];
+  string client_message_id          = 7 [(validate.rules).string = { ignore_empty: true, min_len: 1, max_len: 64 }];
+  // Omit or 0 = main channel; > 0 = topic thread.
+  int64 topic_id            = 8 [(validate.rules).int64 = { gte: 0 }];
+  int64 reply_to_message_id = 9 [(validate.rules).int64 = { gte: 0 }];
+  // Optional excerpt from the parent message; requires reply_to_message_id when set.
+  string reply_quote_text = 14 [(validate.rules).string = { max_len: 4096 }];
+  // UTF-16 code-unit offset of reply_quote_text within the parent message content.
+  int32 reply_quote_position = 15 [(validate.rules).int32 = { gte: 0 }];
+  // >0 => reply in thread under that top-level parent; first send creates thread metadata.
+  int64 message_thread_root_id       = 10 [(validate.rules).int64 = { gte: 0 }];
+  int64 sticker_id                   = 11 [(validate.rules).int64 = { gte: 0 }];
+  repeated LinkPreview link_previews = 12 [(validate.rules).repeated = {
+    max_items: 5,
+    items: { message: { required: true } }
+  }];
+  // Optional forward grant hash from ShareMessage; content may be empty comment.
+  string shared_message_hash = 13 [(validate.rules).string = { ignore_empty: true, min_len: 1, max_len: 64 }];
+  // Original name/size per uploaded file (matched to `files` by URL).
+  repeated FileMeta file_metas = 16 [(validate.rules).repeated = { max_items: 10 }];
+  // When true, expand to all active group members (excluding sender) at send time.
+  // Optional explicit mentioned_user_ids are unioned (e.g. PUBLIC extras).
+  bool mention_all = 17;
+}
+
+message SendChatGroupMessageReply {
+  ChatGroupMessageInfo message = 1;
+  bool duplicate               = 2;
+}
+
+message UpdateChatGroupMessageRequest {
+  int64 message_id                   = 1 [(validate.rules).int64 = { gt: 0 }];
+  string content                     = 2 [(validate.rules).string = { max_len: 4096 }];
+  repeated string images             = 3 [(validate.rules).repeated = { max_items: 10,
+                                                                        items: { string: { max_len: 2048 } } }];
+  repeated string videos             = 4 [(validate.rules).repeated = { max_items: 10,
+                                                                        items: { string: { max_len: 2048 } } }];
+  repeated string files              = 5 [(validate.rules).repeated = { max_items: 10,
+                                                                        items: { string: { max_len: 2048 } } }];
+  repeated int64 mentioned_user_ids  = 6 [(validate.rules).repeated = { max_items: 100, unique: true,
+                                                                        items: { int64: { gt: 0 } } }];
+  repeated LinkPreview link_previews = 7 [(validate.rules).repeated = {
+    max_items: 5,
+    items: { message: { required: true } }
+  }];
+  // Original name/size per uploaded file (matched to `files` by URL).
+  repeated FileMeta file_metas = 8 [(validate.rules).repeated = { max_items: 10 }];
+  // When true, re-expand to all active group members (excluding sender) at edit time.
+  // Optional explicit mentioned_user_ids are unioned; set false to clear @all.
+  bool mention_all = 9;
+}
+
+message UpdateChatGroupMessageReply {
+  ChatGroupMessageInfo message = 1;
+}
+
+message DeleteChatGroupMessageRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteChatGroupMessageReply {
+  ChatGroupMessageInfo message = 1;
+}
+
+message ListChatGroupMessagesRequest {
+  int64 group_id  = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size = 2;
+  // Omit or 0 = main channel; > 0 = topic thread.
+  int64 topic_id = 4 [(validate.rules).int64 = { gte: 0 }];
+  // Pagination cursors — mutually exclusive; omit all for the newest page.
+  // before_message_id: exclusive upper bound (id < cursor), older messages.
+  int64 before_message_id = 3;
+  // after_message_id: exclusive lower bound (id > cursor), newer messages.
+  int64 after_message_id = 5;
+  // around_message_id: inclusive anchor for search/mention jump; page_size is total window.
+  int64 around_message_id = 6;
+  // Omit or 0: top-level messages only (exclude thread replies). >0: list replies in that thread.
+  int64 message_thread_root_id = 7 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message ListChatGroupMessagesReply {
+  repeated ChatGroupMessageInfo messages = 1 [deprecated = true];
+  int32 page_size                        = 2 [deprecated = true];
+  // True when more messages exist below min(returned.id).
+  bool has_older = 3;
+  // True when more messages exist above max(returned.id).
+  bool has_newer = 4;
+  // Mixed timeline (oldest-first within each page). Replayable ChatGroupStreamEvent variants
+  // only: message, member_change, meta_change, topic_change, pinned_change. Live-only payloads
+  // (ping, typing, read/received/reaction_change) never appear here.
+  repeated ChatGroupStreamEvent items = 5;
+}
+
+message MarkChatGroupReadRequest {
+  int64 group_id             = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 last_read_message_id = 2 [(validate.rules).int64 = { gte: 0 }];
+  // Omit or 0 = main channel; > 0 = topic thread.
+  int64 topic_id = 3 [(validate.rules).int64 = { gte: 0 }];
+  // Omit or 0 = channel/topic cursor. > 0 = mark read inside that message reply thread.
+  int64 message_thread_root_id = 4 [(validate.rules).int64 = { gte: 0 }];
+}
+
+// unread_count: main-channel unread when topic_id=0; per-topic unread when topic_id>0.
+message MarkChatGroupReadReply {
+  int64 unread_count = 1;
+}
+
+// Client ACK after fetching messages locally (idempotent per user + message).
+message MarkChatGroupReceivedRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  // Omit or 0 = main channel; > 0 = topic thread.
+  int64 topic_id             = 2 [(validate.rules).int64 = { gte: 0 }];
+  repeated int64 message_ids = 3 [(validate.rules).repeated = { min_items: 1, max_items: 200, unique: true,
+                                                                items: { int64: { gt: 0 } } }];
+}
+
+message MarkChatGroupReceivedReply {
+  int64 accepted_count = 1;
+}
+
+message SetChatGroupMessageReactionRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  string emoji     = 2 [(validate.rules).string = { min_len: 1, max_len: 64 }];
+  bool remove      = 3;
+}
+
+message SetChatGroupMessageReactionReply {
+  repeated MessageReaction reactions = 1;
+}
+
+message SetChatGroupMessagePinnedRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  bool pinned      = 2;
+  // Only honored when pinned=true; enqueue push to group members (except pinner). Ignored on unpin.
+  bool notify = 3;
+}
+
+message SetChatGroupMessagePinnedReply {
+  ChatGroupMessageInfo message = 1;
+}
+
+message ListChatGroupPinnedMessagesRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  // Omit or 0 = main channel; > 0 = topic thread.
+  int64 topic_id  = 2 [(validate.rules).int64 = { gte: 0 }];
+  int32 page_size = 3;
+  // Optional content search (pinned message body only). Empty = browse all pins in scope.
+  string query = 4 [(validate.rules).string = { ignore_empty: true, max_len: 256 }];
+  // Browse mode (query empty): exclusive upper bound on pin row id; omit for the newest page.
+  int64 before_pin_id = 5 [(validate.rules).int64 = { gte: 0 }];
+  // Search mode (query non-empty): 1-based page index.
+  int32 page = 6;
+}
+
+message ListChatGroupPinnedMessagesReply {
+  repeated ChatGroupMessageInfo messages = 1;
+  int32 page_size                        = 2;
+  bool has_next                          = 3;
+}
+
+message ListMyChatGroupMentionsRequest {
+  int32 page_size = 1;
+  // Opaque cursor from the prior reply's next_cursor; omit for the first page.
+  bytes next_cursor = 2;
+}
+
+// my_role = UNSPECIFIED when caller is not a member (public group mention).
+message ChatGroupMentionHit {
+  ChatGroupMessageInfo message   = 1;
+  ChatGroupInfo group            = 2;
+  ChatGroupTopicInfo topic       = 3;  // empty when main channel (topic_id = 0)
+  bool seen                      = 4;  // read_at != null
+  model.v1.ChatGroupRole my_role = 5;
+}
+
+message ListMyChatGroupMentionsReply {
+  repeated ChatGroupMentionHit hits = 1;
+  int32 page_size                   = 2;
+  // Empty when there are no more rows; pass back as next_cursor for the following page.
+  bytes next_cursor    = 3;
+  bool has_more_unread = 4;  // true when unseen rows remain after this page
+}
+
+message MarkChatGroupMentionReadRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message MarkChatGroupMentionReadReply {
+}
+
+message SearchChatGroupsRequest {
+  string query    = 1 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  int32 page_size = 2;
+  int32 page      = 3;
+}
+
+// my_role = UNSPECIFIED means the caller is not a member (discoverable public group).
+message ChatGroupSearchHit {
+  ChatGroupInfo group            = 1;
+  model.v1.ChatGroupRole my_role = 2;
+}
+
+message SearchChatGroupsReply {
+  repeated ChatGroupSearchHit hits = 1;
+  int32 page_size                  = 2;
+  int32 page                       = 3;
+  int64 count                      = 4;
+}
+
+message SearchGroupMessagesRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  // Empty = main channel only; include 0 for main, >0 for topic threads.
+  repeated int64 topic_ids = 2 [(validate.rules).repeated = { max_items: 50, unique: true,
+                                                              items: { int64: { gte: 0 } } }];
+  string query             = 3 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  int32 page_size          = 4;
+  int32 page               = 5;
+  SearchMessagesSort sort  = 6 [(validate.rules).enum = { defined_only: true }];
+  // Omit or 0 = any sender.
+  int64 from_user_id = 7 [(validate.rules).int64 = { gte: 0 }];
+  // Optional UTC bounds on message created_at. Omit either for an open-ended window.
+  google.protobuf.Timestamp from_time = 8;
+  google.protobuf.Timestamp to_time   = 9;
+  // Omit or 0: search all messages (top-level and replies). >0: restrict to replies within that thread.
+  int64 message_thread_root_id = 10 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message SearchGroupMessagesReply {
+  repeated ChatGroupMessageInfo hits = 1;
+  int32 page_size                    = 2;
+  int32 page                         = 3;
+  bool has_next                      = 4;
+}
+
+// ── Staff group chat live stream ──
+
+message SignalChatGroupTypingRequest {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  bool typing    = 2;
+  // Omit or 0 = main channel; > 0 = topic thread.
+  int64 topic_id = 3 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message SignalChatGroupTypingReply {}
+
+message ChatGroupTypingIndicator {
+  int64 group_id  = 1;
+  int64 user_id   = 2;
+  string username = 3;
+  bool typing     = 4;
+  // 0 = main channel; > 0 = topic thread.
+  int64 topic_id = 5;
+}
+
+message StreamChatGroupsRequest {
+  int64 resume_after_message_id = 1;
+  int64 resume_after_event_id   = 2;
+}
+
+// Keepalive for StreamChatGroups; ignored by clients except to hold the connection open.
+message ChatGroupStreamPing {
+  int64 server_time_unix_ms = 1;
+}
+
+enum ChatGroupMemberChangeType {
+  CHAT_GROUP_MEMBER_CHANGE_TYPE_UNSPECIFIED  = 0;
+  CHAT_GROUP_MEMBER_CHANGE_TYPE_ADDED        = 1;
+  CHAT_GROUP_MEMBER_CHANGE_TYPE_REMOVED      = 2;
+  CHAT_GROUP_MEMBER_CHANGE_TYPE_LEFT         = 3;
+  CHAT_GROUP_MEMBER_CHANGE_TYPE_JOINED       = 4;
+  CHAT_GROUP_MEMBER_CHANGE_TYPE_ROLE_CHANGED = 5;
+}
+
+// Membership snapshot; replayed on reconnect via resume_after_event_id and ListChatGroupMessages.
+message ChatGroupMemberChange {
+  int64 group_id                        = 1;
+  ChatGroupMemberChangeType change_type = 2;
+  int64 user_id                         = 3;
+  model.v1.ChatGroupRole role           = 4;
+  // ChatGroupStreamEventLog.id for this mutation; FE keeps the event with the higher value.
+  int64 event_id                     = 5 [(validate.rules).int64 = { gt: 0 }];
+  int64 actor_user_id                = 6;
+  google.protobuf.Timestamp event_at = 7;
+}
+
+// Group metadata snapshot; replayed on reconnect via resume_after_event_id and ListChatGroupMessages.
+message ChatGroupMetaChange {
+  int64 group_id      = 1;
+  ChatGroupInfo group = 2;
+  // ChatGroupStreamEventLog.id for this mutation; FE keeps the event with the higher value.
+  int64 event_id                     = 3 [(validate.rules).int64 = { gt: 0 }];
+  int64 actor_user_id                = 4;
+  google.protobuf.Timestamp event_at = 5;
+}
+
+enum ChatGroupTopicChangeType {
+  CHAT_GROUP_TOPIC_CHANGE_TYPE_UNSPECIFIED = 0;
+  CHAT_GROUP_TOPIC_CHANGE_TYPE_CREATED     = 1;
+  CHAT_GROUP_TOPIC_CHANGE_TYPE_UPDATED     = 2;
+  CHAT_GROUP_TOPIC_CHANGE_TYPE_DELETED     = 3;
+}
+
+// Topic lifecycle snapshot; replayed on reconnect via resume_after_event_id and ListChatGroupMessages.
+message ChatGroupTopicChange {
+  int64 group_id                       = 1;
+  ChatGroupTopicChangeType change_type = 2;
+  ChatGroupTopicInfo topic             = 3;
+  // ChatGroupStreamEventLog.id for this mutation; FE keeps the event with the higher value.
+  int64 event_id                     = 4 [(validate.rules).int64 = { gt: 0 }];
+  int64 actor_user_id                = 5;
+  google.protobuf.Timestamp event_at = 6;
+}
+
+// Live-only read receipt when a member marks read (MarkChatGroupRead); not replayed on reconnect.
+// Never emitted when the reader is an active anonymous member (same silent pattern as MEMBER_CHANGE).
+message ChatGroupReadChange {
+  int64 group_id             = 1;
+  int64 topic_id             = 2;  // 0 = main channel; > 0 = topic thread
+  int64 reader_user_id       = 3;
+  int64 last_read_message_id = 4;
+  int64 unread_count         = 5;  // reader unread after mark read (main or topic scope)
+}
+
+// Live-only received ACK for peers (receipt = xác nhận đã nhận tin); not replayed on reconnect.
+// Never emitted when the receiver is an active anonymous member.
+message ChatGroupReceivedChange {
+  int64 group_id             = 1;
+  int64 topic_id             = 2;  // 0 = main channel; > 0 = topic thread
+  int64 receiver_user_id     = 3;
+  repeated int64 message_ids = 4;
+  int64 received_at_unix_ms  = 5;
+}
+
+// Live-only reaction snapshot when a member reacts/unreacts; not replayed on reconnect.
+message ChatGroupReactionChange {
+  int64 group_id                     = 1;
+  int64 topic_id                     = 2;  // 0 = main channel; > 0 = topic thread
+  int64 message_id                   = 3;
+  repeated MessageReaction reactions = 4;
+  // Auto-increment id of the reaction row inserted or removed in this mutation; FE keeps the event with the higher value.
+  int64 last_reaction_id = 5 [(validate.rules).int64 = { gt: 0 }];
+}
+
+// Pin/unpin snapshot; replayed on reconnect via resume_after_event_id.
+message ChatGroupPinnedChange {
+  int64 group_id                      = 1;
+  int64 topic_id                      = 2;  // 0 = main channel; > 0 = topic thread
+  int64 message_id                    = 3;
+  bool pinned                         = 4;
+  int64 pinned_by_user_id             = 5;
+  google.protobuf.Timestamp pinned_at = 6;
+  // ChatGroupStreamEventLog.id for this mutation; FE keeps the event with the higher value.
+  int64 event_id = 7 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message ChatGroupStreamEvent {
+  oneof item {
+    ChatGroupStreamPing ping                = 1;
+    ChatGroupMessageInfo message            = 2;
+    ChatGroupMemberChange member_change     = 3;
+    ChatGroupMetaChange meta_change         = 4;
+    ChatGroupTypingIndicator typing         = 5;
+    ChatGroupTopicChange topic_change       = 6;
+    ChatGroupReadChange read_change         = 7;
+    ChatGroupReceivedChange received_change = 8;
+    ChatGroupReactionChange reaction_change = 9;
+    ChatGroupPinnedChange pinned_change     = 10;
+  }
+}
+
+// ── Staff direct message (1:1; separate from ChatGroup) ──
+
+message DirectMessagePeerInfo {
+  int64 user_id       = 1;
+  string display_name = 2;
+  string avatar_url   = 3;
+  string user_name    = 4;
+}
+
+message DirectMessageThreadInfo {
+  int64 id                                  = 1;
+  DirectMessagePeerInfo peer                = 2;
+  google.protobuf.Timestamp last_message_at = 3;
+  int64 last_message_id                     = 4;
+  DirectMessageInfo last_message            = 5;
+  int64 unread_count                        = 6;
+  google.protobuf.Timestamp created_at      = 7;
+  // True when the DM's global last message is a thread reply (not main timeline top-level).
+  bool last_message_in_thread = 8;
+  // Parent message id when last_message_in_thread is true; for navigation into the thread.
+  int64 last_message_thread_root_id = 9;
+}
+
+enum DirectMessageDeliveryStatus {
+  DIRECT_MESSAGE_DELIVERY_STATUS_UNSPECIFIED = 0;
+  DIRECT_MESSAGE_DELIVERY_STATUS_SENT        = 1;
+  DIRECT_MESSAGE_DELIVERY_STATUS_RECEIVED    = 2;
+  DIRECT_MESSAGE_DELIVERY_STATUS_READ        = 3;
+}
+
+message DirectMessageInfo {
+  int64 id                                    = 1;
+  int64 thread_id                             = 2;
+  int64 sender_user_id                        = 3;
+  string sender_username                      = 4;
+  string content                              = 5;
+  repeated string images                      = 6;
+  repeated string videos                      = 7;
+  repeated string files                       = 8;
+  google.protobuf.Timestamp created_at        = 9;
+  google.protobuf.Timestamp edited_at         = 10;
+  google.protobuf.Timestamp deleted_at        = 11;
+  int64 reply_to_message_id                   = 12;
+  DirectMessageInfo reply_to                  = 13;
+  DirectMessageDeliveryStatus delivery_status = 14;
+  int64 received_at_unix_ms                   = 15;
+  int64 read_at_unix_ms                       = 16;
+  // 0 = top-level; on thread replies, the parent message id.
+  int64 message_thread_root_id = 17;
+  // Set on top-level messages when reply_count > 0.
+  MessageThreadSummary message_thread = 18;
+  int64 sticker_id                    = 19;
+  string sticker_url                  = 20 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+  repeated MessageReaction reactions  = 21;
+  repeated LinkPreview link_previews  = 22;
+  bool pinned                         = 26;
+  google.protobuf.Timestamp pinned_at = 27;
+  int64 pinned_by_user_id             = 28;
+  // Set when this message forwards a shared snapshot (see ShareMessage / GetSharedMessage).
+  string shared_message_hash = 29 [(validate.rules).string = { ignore_empty: true, min_len: 1, max_len: 64 }];
+  // Excerpt from the parent message when the reply quotes a substring; empty when not a quote-reply.
+  string reply_quote_text = 30 [(validate.rules).string = { max_len: 4096 }];
+  // UTF-16 code-unit offset of reply_quote_text within the parent message content; 0 when not set.
+  int32 reply_quote_position = 31 [(validate.rules).int32 = { gte: 0 }];
+  // Original name/size per uploaded file (matched to `files` by URL).
+  repeated FileMeta file_metas = 32;
+}
+
+message CreateOrGetDirectMessageRequest {
+  int64 other_user_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message CreateOrGetDirectMessageReply {
+  DirectMessageThreadInfo thread = 1;
+  bool created                   = 2;
+}
+
+message ListMyDirectMessagesRequest {
+  int32 page_size = 1;
+  int32 page      = 2;
+}
+
+message ListMyDirectMessagesReply {
+  repeated DirectMessageThreadInfo threads = 1;
+  int32 page_size                          = 2;
+  int32 page                               = 3;
+  int64 count                              = 4;
+}
+
+message GetDirectMessageRequest {
+  int64 thread_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message GetDirectMessageReply {
+  DirectMessageThreadInfo thread = 1;
+}
+
+message SendDirectMessageRequest {
+  int64 thread_id           = 1 [(validate.rules).int64 = { gte: 0 }];
+  int64 other_user_id       = 2 [(validate.rules).int64 = { gte: 0 }];
+  string content            = 3 [(validate.rules).string = { max_len: 4096 }];
+  repeated string images    = 4 [(validate.rules).repeated = { max_items: 10,
+                                                               items: { string: { max_len: 2048 } } }];
+  repeated string videos    = 5 [(validate.rules).repeated = { max_items: 10,
+                                                               items: { string: { max_len: 2048 } } }];
+  repeated string files     = 6 [(validate.rules).repeated = { max_items: 10,
+                                                               items: { string: { max_len: 2048 } } }];
+  string client_message_id  = 7 [(validate.rules).string = { ignore_empty: true, min_len: 1, max_len: 64 }];
+  int64 reply_to_message_id = 8 [(validate.rules).int64 = { gte: 0 }];
+  // Optional excerpt from the parent message; requires reply_to_message_id when set.
+  string reply_quote_text = 13 [(validate.rules).string = { max_len: 4096 }];
+  // UTF-16 code-unit offset of reply_quote_text within the parent message content.
+  int32 reply_quote_position = 14 [(validate.rules).int32 = { gte: 0 }];
+  // >0 => reply in thread under that top-level parent; first send creates thread metadata.
+  int64 message_thread_root_id       = 9 [(validate.rules).int64 = { gte: 0 }];
+  int64 sticker_id                   = 10 [(validate.rules).int64 = { gte: 0 }];
+  repeated LinkPreview link_previews = 11 [(validate.rules).repeated = {
+    max_items: 5,
+    items: { message: { required: true } }
+  }];
+  // Optional forward grant hash from ShareMessage; content may be empty comment.
+  string shared_message_hash = 12 [(validate.rules).string = { ignore_empty: true, min_len: 1, max_len: 64 }];
+  // Original name/size per uploaded file (matched to `files` by URL).
+  repeated FileMeta file_metas = 15 [(validate.rules).repeated = { max_items: 10 }];
+}
+
+message SendDirectMessageReply {
+  DirectMessageInfo message = 1;
+  int64 thread_id           = 2;
+  bool duplicate            = 3;
+}
+
+message UpdateDirectMessageRequest {
+  int64 message_id                   = 1 [(validate.rules).int64 = { gt: 0 }];
+  string content                     = 2 [(validate.rules).string = { max_len: 4096 }];
+  repeated string images             = 3 [(validate.rules).repeated = { max_items: 10,
+                                                                        items: { string: { max_len: 2048 } } }];
+  repeated string videos             = 4 [(validate.rules).repeated = { max_items: 10,
+                                                                        items: { string: { max_len: 2048 } } }];
+  repeated string files              = 5 [(validate.rules).repeated = { max_items: 10,
+                                                                        items: { string: { max_len: 2048 } } }];
+  repeated LinkPreview link_previews = 6 [(validate.rules).repeated = {
+    max_items: 5,
+    items: { message: { required: true } }
+  }];
+  // Original name/size per uploaded file (matched to `files` by URL).
+  repeated FileMeta file_metas = 7 [(validate.rules).repeated = { max_items: 10 }];
+}
+
+message UpdateDirectMessageReply {
+  DirectMessageInfo message = 1;
+}
+
+message DeleteDirectMessageRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DeleteDirectMessageReply {
+  DirectMessageInfo message = 1;
+}
+
+message ListDirectMessagesRequest {
+  int64 thread_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size = 2;
+  // Pagination cursors — mutually exclusive; omit all for the newest page.
+  int64 before_message_id = 3;
+  int64 after_message_id  = 4;
+  int64 around_message_id = 5;
+  // Omit or 0: top-level messages only (exclude thread replies). >0: list replies in that thread.
+  int64 message_thread_root_id = 6 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message ListDirectMessagesReply {
+  repeated DirectMessageInfo messages = 1;
+  int32 page_size                     = 2;
+  bool has_older                      = 3;
+  bool has_newer                      = 4;
+}
+
+message MarkDirectMessageReadRequest {
+  int64 thread_id            = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 last_read_message_id = 2 [(validate.rules).int64 = { gte: 0 }];
+  // Omit or 0 = DM timeline cursor. > 0 = mark read inside that message reply thread.
+  int64 message_thread_root_id = 3 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message MarkDirectMessageReadReply {
+  int64 unread_count = 1;
+}
+
+message MarkDirectMessageReceivedRequest {
+  int64 thread_id            = 1 [(validate.rules).int64 = { gt: 0 }];
+  repeated int64 message_ids = 2 [(validate.rules).repeated = { min_items: 1, max_items: 200, unique: true,
+                                                                items: { int64: { gt: 0 } } }];
+}
+
+message MarkDirectMessageReceivedReply {
+  int64 accepted_count = 1;
+}
+
+message SetDirectMessageReactionRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  string emoji     = 2 [(validate.rules).string = { min_len: 1, max_len: 64 }];
+  bool remove      = 3;
+}
+
+message SetDirectMessageReactionReply {
+  repeated MessageReaction reactions = 1;
+}
+
+message SetDirectMessagePinnedRequest {
+  int64 message_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  bool pinned      = 2;
+  // Only honored when pinned=true; enqueue push to DM peer (not pinner). Ignored on unpin.
+  bool notify = 3;
+}
+
+message SetDirectMessagePinnedReply {
+  DirectMessageInfo message = 1;
+}
+
+message ListDirectMessagePinnedMessagesRequest {
+  int64 thread_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int32 page_size = 2;
+  // Optional content search (pinned message body only). Empty = browse all pins in scope.
+  string query = 3 [(validate.rules).string = { ignore_empty: true, max_len: 256 }];
+  // Browse mode (query empty): exclusive upper bound on pin row id; omit for the newest page.
+  int64 before_pin_id = 4 [(validate.rules).int64 = { gte: 0 }];
+  // Search mode (query non-empty): 1-based page index.
+  int32 page = 5;
+}
+
+message ListDirectMessagePinnedMessagesReply {
+  repeated DirectMessageInfo messages = 1;
+  int32 page_size                     = 2;
+  bool has_next                       = 3;
+}
+
+message SearchDirectMessagesRequest {
+  // 0 = all threads where caller is participant; > 0 = single thread after participant check.
+  int64 thread_id                     = 1 [(validate.rules).int64 = { gte: 0 }];
+  string query                        = 2 [(validate.rules).string = { min_len: 1, max_len: 256 }];
+  int32 page_size                     = 3;
+  int32 page                          = 4;
+  SearchMessagesSort sort             = 5 [(validate.rules).enum = { defined_only: true }];
+  int64 from_user_id                  = 6 [(validate.rules).int64 = { gte: 0 }];
+  google.protobuf.Timestamp from_time = 7;
+  google.protobuf.Timestamp to_time   = 8;
+  // Omit or 0: search all messages (top-level and replies). >0: restrict to replies within that thread.
+  int64 message_thread_root_id = 9 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message SearchDirectMessageHit {
+  DirectMessageInfo message      = 1;
+  DirectMessageThreadInfo thread = 2;
+}
+
+message SearchDirectMessagesReply {
+  repeated SearchDirectMessageHit hits = 1;
+  int32 page_size                      = 2;
+  int32 page                           = 3;
+  bool has_next                        = 4;
+}
+
+// ── Staff direct message live stream ──
+
+message SignalDirectMessageTypingRequest {
+  int64 thread_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  bool typing     = 2;
+}
+
+message SignalDirectMessageTypingReply {}
+
+message DirectMessageTypingIndicator {
+  int64 thread_id = 1;
+  int64 user_id   = 2;
+  string username = 3;
+  bool typing     = 4;
+}
+
+message StreamDirectMessagesRequest {
+  int64 resume_after_message_id = 1;
+  int64 resume_after_event_id   = 2;
+}
+
+message DirectMessageStreamPing {
+  int64 server_time_unix_ms = 1;
+}
+
+// Live-only read receipt when a participant marks read; not replayed on reconnect.
+message DirectMessageReadChange {
+  int64 thread_id            = 1;
+  int64 reader_user_id       = 2;
+  int64 last_read_message_id = 3;
+  int64 unread_count         = 4;
+}
+
+// Live-only received ACK for peer; not replayed on reconnect.
+message DirectMessageReceivedChange {
+  int64 thread_id            = 1;
+  int64 receiver_user_id     = 2;
+  repeated int64 message_ids = 3;
+  int64 received_at_unix_ms  = 4;
+}
+
+// Live-only reaction snapshot when a participant reacts/unreacts; not replayed on reconnect.
+message DirectMessageReactionChange {
+  int64 thread_id                    = 1;
+  int64 message_id                   = 2;
+  repeated MessageReaction reactions = 3;
+  // Auto-increment id of the reaction row inserted or removed in this mutation; FE keeps the event with the higher value.
+  int64 last_reaction_id = 4 [(validate.rules).int64 = { gt: 0 }];
+}
+
+// Pin/unpin snapshot; replayed on reconnect via resume_after_event_id.
+message DirectMessagePinnedChange {
+  int64 thread_id                     = 1;
+  int64 message_id                    = 2;
+  bool pinned                         = 3;
+  int64 pinned_by_user_id             = 4;
+  google.protobuf.Timestamp pinned_at = 5;
+  // DirectMessageStreamEventLog.id for this mutation; FE keeps the event with the higher value.
+  int64 event_id = 6 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DirectMessageStreamEvent {
+  oneof item {
+    DirectMessageStreamPing ping                = 1;
+    DirectMessageInfo message                   = 2;
+    DirectMessageTypingIndicator typing         = 3;
+    DirectMessageReadChange read_change         = 4;
+    DirectMessageReceivedChange received_change = 5;
+    DirectMessageReactionChange reaction_change = 6;
+    DirectMessagePinnedChange pinned_change     = 7;
+  }
+}
+
+// ── Push notifications ──
+
+enum PushPlatform {
+  PUSH_PLATFORM_UNSPECIFIED = 0;
+  PUSH_PLATFORM_ANDROID     = 1;
+  PUSH_PLATFORM_IOS         = 2;
+  PUSH_PLATFORM_WEB_CHROME  = 3;
+  PUSH_PLATFORM_WEB_FIREFOX = 4;
+}
+
+message PushDevice {
+  int64 id                             = 1;
+  PushPlatform platform                = 2;
+  string token                         = 3;
+  string app_version                   = 4;
+  string locale                        = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  // Stable per-install id from the mobile client; empty for web registrations.
+  string client_device_id = 8;
+}
+
+message NotificationPreferences {
+  bool customer_new_conversation = 1;
+  bool customer_messages         = 2;
+  bool group_messages            = 3;
+  bool group_mentions            = 4;
+  bool group_membership          = 5;
+  bool direct_messages           = 6;
+  bool group_reactions           = 7;
+  bool direct_message_reactions  = 8;
+}
+
+message RegisterPushDeviceRequest {
+  PushPlatform platform = 1 [(validate.rules).enum = { defined_only: true,
+                                                       not_in: [ 0 ] }];
+  // Plain FCM/APNs registration token (ANDROID, IOS, WEB_CHROME via Firebase getToken),
+  // or JSON.stringify(PushSubscription) for WEB_CHROME / WEB_FIREFOX native Web Push.
+  string token       = 2 [(validate.rules).string = { min_len: 1, max_len: 8192 }];
+  string app_version = 3 [(validate.rules).string = { ignore_empty: true, max_len: 64 }];
+  string locale      = 4 [(validate.rules).string = { ignore_empty: true, max_len: 16 }];
+  // Required for ANDROID / IOS: stable id generated once per app install (Keychain / Keystore).
+  // Ignored for web platforms (subscription supersede is per browser platform).
+  string client_device_id = 5 [(validate.rules).string = { ignore_empty: true, max_len: 128 }];
+}
+
+message RegisterPushDeviceReply {
+  PushDevice device = 1;
+}
+
+message UnregisterPushDeviceRequest {
+  oneof key {
+    int64 device_id = 1 [(validate.rules).int64 = { gt: 0 }];
+    string token    = 2 [(validate.rules).string = { min_len: 1, max_len: 8192 }];
+  }
+}
+
+message UnregisterPushDeviceReply {}
+
+message GetNotificationPreferencesRequest {}
+
+message GetNotificationPreferencesReply {
+  NotificationPreferences preferences = 1;
+}
+
+message UpdateNotificationPreferencesRequest {
+  repeated Change changes = 1 [(validate.rules).repeated = { min_items: 1, max_items: 8 }];
+
+  message Change {
+    oneof field {
+      bool customer_new_conversation = 1;
+      bool customer_messages         = 2;
+      bool group_messages            = 3;
+      bool group_mentions            = 4;
+      bool group_membership          = 5;
+      bool direct_messages           = 6;
+      bool group_reactions           = 7;
+      bool direct_message_reactions  = 8;
+    }
+  }
+}
+
+message UpdateNotificationPreferencesReply {
+  NotificationPreferences preferences = 1;
+}
+
+// ── Link preview ──
+
+message LinkPreview {
+  string url         = 1 [(validate.rules).string = { min_len: 1, max_len: 2048, uri: true }];
+  string title       = 2 [(validate.rules).string = { ignore_empty: true, max_len: 512 }];
+  string description = 3 [(validate.rules).string = { ignore_empty: true, max_len: 512 }];
+  string image_url   = 4 [(validate.rules).string = { ignore_empty: true, max_len: 2048, uri: true }];
+  string site_name   = 5 [(validate.rules).string = { ignore_empty: true, max_len: 2048 }];
+}
+
+message PreviewLinkRequest {
+  // url must be an absolute http or https URL. file://, javascript:, and other
+  // schemes are rejected at the proto-validation layer before any fetch occurs.
+  string url = 1 [(validate.rules).string = { min_len: 1, max_len: 2048, uri: true, pattern: "^https?://" }];
+}
+
+message PreviewLinkReply {
+  LinkPreview preview      = 1;
+  PreviewLinkResult result = 2;
+}
+
+enum PreviewLinkResult {
+  PREVIEW_LINK_RESULT_UNSPECIFIED  = 0;
+  PREVIEW_LINK_RESULT_OK           = 1;
+  PREVIEW_LINK_RESULT_NO_METADATA  = 2;
+  PREVIEW_LINK_RESULT_FETCH_FAILED = 3;
+}
+
+// ── Message media gallery ──
+
+// Client-supplied metadata for one uploaded file attachment. The upload
+// pipeline stores bare URLs only, so senders pass the original name/size
+// captured from the file picker; entries with URLs absent from `files` are
+// dropped server-side.
+message FileMeta {
+  string url  = 1 [(validate.rules).string = { min_len: 1, max_len: 2048 }];
+  string name = 2 [(validate.rules).string = { ignore_empty: true, max_len: 512 }];
+  int64 size  = 3 [(validate.rules).int64 = { gte: 0 }];
+}
+
+enum MessageMediaType {
+  MESSAGE_MEDIA_TYPE_UNSPECIFIED = 0;
+  MESSAGE_MEDIA_TYPE_MEDIA       = 1;
+  MESSAGE_MEDIA_TYPE_FILE        = 2;
+  MESSAGE_MEDIA_TYPE_LINK        = 3;
+}
+
+message ListMessageMediaRequest {
+  // Exactly one target is required.
+  oneof target {
+    int64 group_id  = 1;  // chat group (main channel + topics)
+    int64 thread_id = 2;  // staff direct message thread
+  }
+  MessageMediaType media_type = 3 [(validate.rules).enum = { in: [ 1, 2, 3 ] }];
+  int32 page_size             = 4;
+  // Exclusive upper bound (message id < cursor); omit for the newest page.
+  int64 before_message_id = 5;
+  // Chat group targets only: omit or 0 = whole group (main channel + all topics);
+  // > 0 = restrict to that topic.
+  int64 topic_id = 6 [(validate.rules).int64 = { gte: 0 }];
+  // Chat group targets only: restrict to main-channel messages (topic_id = 0 rows). Needed because topic_id = 0 in this API means "whole group". Mutually exclusive with topic_id > 0.
+  bool main_channel_only = 7;
+}
+
+message MessageMediaItem {
+  int64 message_id            = 1;
+  MessageMediaType media_type = 2;
+  string url                  = 3;
+  // True when a MEDIA item is a video (clients render a play badge / use <video>).
+  bool is_video                        = 4;
+  int64 sender_user_id                 = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // FILE items only — original name/size captured at send time; empty for
+  // files sent by clients that predate FileMeta support.
+  string file_name = 7;
+  int64 file_size  = 8;
+  // LINK items only — snapshot of the stored link preview matching this URL
+  // (empty when the message was sent without a preview) plus the message
+  // text, so clients can render Telegram-style link cards without extra requests.
+  string link_title       = 9;
+  string link_description = 10;
+  string link_image_url   = 11;
+  string message_content  = 12;
+}
+
+message ListMessageMediaReply {
+  // Newest message first; items within one message keep their stored order.
+  repeated MessageMediaItem items = 1;
+  // True when more items exist below min(returned.message_id).
+  bool has_older = 2;
+}
+
+message GetMessageMediaCountsRequest {
+  // Exactly one target is required.
+  oneof target {
+    int64 group_id  = 1;
+    int64 thread_id = 2;
+  }
+  // Chat group targets only: omit or 0 = whole group; > 0 = restrict to that topic.
+  int64 topic_id = 3 [(validate.rules).int64 = { gte: 0 }];
+  // Chat group targets only: restrict to main-channel messages (topic_id = 0 rows). Mutually exclusive with topic_id > 0.
+  bool main_channel_only = 4;
+}
+
+message GetMessageMediaCountsReply {
+  // Counts are messages containing at least one item of the type (not item totals).
+  int64 media_count = 1;
+  int64 file_count  = 2;
+  int64 link_count  = 3;
+}
+
+// ── Forward / shared message ──
+
+message ChatGroupMessageRef {
+  int64 group_id   = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 topic_id   = 2 [(validate.rules).int64 = { gte: 0 }];
+  int64 message_id = 3 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message DirectMessageRef {
+  int64 thread_id  = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 message_id = 2 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message CustomerMessageRef {
+  int64 conversation_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  int64 message_id      = 2 [(validate.rules).int64 = { gt: 0 }];
+}
+
+message ChatGroupAudience {
+  int64 group_id = 1 [(validate.rules).int64 = { gt: 0 }];
+  // Optional; ACL uses group membership, not topic.
+  int64 topic_id = 2 [(validate.rules).int64 = { gte: 0 }];
+}
+
+message ShareMessageRequest {
+  oneof source {
+    option (validate.required)  = true;
+    ChatGroupMessageRef group   = 1;
+    DirectMessageRef dm         = 2;
+    CustomerMessageRef customer = 3;
+  }
+  oneof audience {
+    option (validate.required)       = true;
+    int64 user_id                    = 10 [(validate.rules).int64 = { gt: 0 }];
+    ChatGroupAudience audience_group = 11;
+  }
+}
+
+message ShareMessageReply {
+  string hash = 1;
+}
+
+message GetSharedMessageRequest {
+  string hash = 1 [(validate.rules).string = { min_len: 1, max_len: 64 }];
+}
+
+// Frozen forward-card payload (independent of source table).
+message SharedMessageSnapshot {
+  string content                              = 1;
+  repeated string images                      = 2;
+  repeated string videos                      = 3;
+  repeated string files                       = 4;
+  repeated string audios                      = 5;
+  int64 sticker_id                            = 6;
+  string sticker_url                          = 7;
+  int64 sender_user_id                        = 8;
+  string sender_username                      = 9;
+  string source_kind                          = 10;  // GROUP | DM | CUSTOMER
+  string source_name                          = 11;
+  int64 source_message_id                     = 12;
+  google.protobuf.Timestamp source_created_at = 13;
+  // Location for FE "open original" (also on shared_messages row; echoed here for clients).
+  int64 source_group_id        = 14;
+  int64 source_topic_id        = 15;
+  int64 source_thread_id       = 16;
+  int64 source_conversation_id = 17;
+  // Telegram GIFs (often mp4); kept separate from videos.
+  repeated string gifs = 18;
+  // Telegram voice notes (ogg/opus); distinct from generic audios.
+  repeated string voices = 19;
+  // Telegram sticker URLs (customer CS); group/DM still use sticker_id/url.
+  repeated string stickers = 20;
+}
+
+message GetSharedMessageReply {
+  SharedMessageSnapshot snapshot       = 1;
+  int64 shared_by_user_id              = 2;
+  google.protobuf.Timestamp created_at = 3;
+}

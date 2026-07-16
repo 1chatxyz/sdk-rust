@@ -1,0 +1,66 @@
+{
+  "packageManager": "pnpm@10.6.1",
+  "name": "@marketplace/openclaw-myconversation",
+  "version": "1.0.21",
+  "description": "OpenClaw channel plugin for myconversation staff group chat.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "build:npm": "pnpm test && pnpm run typecheck && pnpm run build",
+    "build:bundle": "node esbuild.config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:registry": "sh scripts/test-registry.sh",
+    "publish:npm": "pnpm publish --no-git-checks",
+    "pl": "pnpm publish --no-git-checks",
+    "prepublishOnly": "pnpm run build"
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "openclaw": ">=2026.6.5"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^1.10.1",
+    "@connectrpc/connect": "^1.7.0",
+    "@connectrpc/connect-node": "^1.7.0",
+    "@genjutsu/myconversation-connect": "^1.194.0",
+    "@genjutsu/myedge-connect": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "esbuild": "^0.28.0",
+    "openclaw": "2026.6.5",
+    "typescript": "latest",
+    "vitest": "latest"
+  },
+  "pnpm": {
+    "autoInstallPeers": false
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ],
+    "setupEntry": "./dist/setup-entry.js",
+    "runtimeSetupEntry": "./dist/setup-entry.js",
+    "channel": {
+      "id": "myconversation",
+      "label": "myconversation",
+      "selectionLabel": "myconversation (self-hosted)",
+      "detailLabel": "myconversation Staff Group Chat",
+      "blurb": "Connect OpenClaw to myconversation staff group chat over internal gRPC.",
+      "markdownCapable": true,
+      "exposure": {
+        "configured": true,
+        "setup": true,
+        "docs": true
+      }
+    }
+  }
+}

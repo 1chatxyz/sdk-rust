@@ -1,0 +1,59 @@
+---
+description: Rust coding style for the backend, following the official Rust Style Guide
+globs: "**/*.rs,**/Cargo.toml"
+alwaysApply: false
+---
+
+# Rust Style
+
+Follow the official [Rust Style Guide](https://doc.rust-lang.org/style-guide/index.html).
+Formatting is delegated to **default rustfmt** — run `cargo fmt` before committing and do
+not add a `rustfmt.toml`. CI enforces `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings`.
+
+## Layout (rustfmt defaults — don't fight them)
+
+- Spaces only (never tabs), 4-space indent, 100-char max line width, no
+  trailing whitespace.
+- Block indent over visual indent; trailing comma on every multi-line list.
+- String literals (e.g. long SQL) are not wrapped by rustfmt — break them into
+  multi-line literals yourself so every line stays within 100 chars.
+
+## Items & imports
+
+- `use` statements come **before** `mod` declarations; both come before other items.
+- Keep import groups separated by a blank line, version-sorted within each group
+  (rustfmt sorts within a group but never creates or merges groups):
+
+```rust
+use serde::Deserialize;   // 1. external crates (std first if used)
+use worker::*;
+
+use crate::models::Task;   // 2. crate-internal
+```
+
+- In list imports, `self` comes first and globs/nested groups last:
+  `use a::{self, b, c::*};` Prefer several one-line `use` statements over one
+  multi-line list.
+
+## Comments & attributes
+
+- Prefer `//` line comments; write complete sentences (capital letter, ending
+  period). Keep comment lines within ~80 characters.
+- Use `///` outer doc comments for public items; place doc comments **above**
+  attributes (`///` then `#[derive(...)]`).
+- One attribute per line; exactly one `#[derive(...)]` per item.
+
+## Types & signatures
+
+- Prefer named-field structs once a tuple struct stops fitting on one line.
+- Prefer unit structs (`struct Foo;`) over empty `struct Foo {}` / `struct Foo();`.
+- Single-letter generic parameters; reach for a `where` clause instead of
+  line-breaking a generics clause.
+
+## Cargo.toml
+
+- `[package]` first, with `name` then `version` at the top and `description` last.
+- Version-sort keys inside every other section (e.g. `[dependencies]`).
+- Bare keys, one space around `=`, inline tables/arrays only while they fit on
+  one line, blank line between sections.

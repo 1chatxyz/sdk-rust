@@ -1,0 +1,45 @@
+---
+description: Semantic commit message convention for commits and PR titles.
+alwaysApply: true
+---
+
+# Semantic Commit Messages
+
+Use semantic commit messages for all commits and PR titles.
+
+## Format
+
+```
+<type>(<scope>): <subject>
+```
+
+- `<scope>` is **optional**. If a change is specific to one or two packages/areas, add the scope. Keep scopes brief but recognizable (e.g. `core`, `lobby`, `loading`, `assets`, `ui`).
+- `<subject>` is a summary in **present tense, lower case** (not title case), with no trailing period.
+
+## Types
+
+- `feat`: a new API or behavior for the end user.
+- `fix`: a bug fix for the end user.
+- `docs`: a change to docs or other Markdown documents in the repo.
+- `refactor`: a change to production code with no behavior difference (splitting files, renaming internal variables, improving code style…).
+- `test`: adding missing tests or refactoring tests; no production code change.
+- `chore`: upgrading dependencies, releasing new versions, and other regular maintenance.
+- `misc`: anything else that doesn't change production code, yet is not `test` or `chore` (e.g. updating CI workflow).
+
+## Example
+
+```
+feat(core): allow overriding of webpack config
+^--^^----^  ^------------^
+|   |       |
+|   |       +-> Summary in present tense. Use lower case not title case!
+|   |
+|   +-> The package(s) that this change affected.
+|
++-------> Type: see above for the list we use.
+```
+
+## Notes
+
+- PRs are squash-merged, so the PR title becomes the commit on `main` — name PR titles semantically. Individual commits within a branch don't need to be strictly semantic.
+- Conventions matter less than correct code; don't over-stress the title.

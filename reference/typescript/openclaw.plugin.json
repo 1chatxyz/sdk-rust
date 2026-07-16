@@ -1,0 +1,100 @@
+{
+  "id": "myconversation",
+  "kind": "channel",
+  "name": "myconversation",
+  "description": "OpenClaw channel plugin scaffold for myconversation staff group chat.",
+  "channels": ["myconversation"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "myconversation": {
+      "label": "myconversation",
+      "description": "Connect OpenClaw to myconversation staff group chat over internal gRPC.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable or disable the myconversation channel account"
+          },
+          "endpoint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "myconversation internal gRPC host:port"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tenant id sent as x-tenant-id on every RPC"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bearer token sent as Authorization on every RPC"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional service user id for plugin self/mention filtering (not sent on the wire)"
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional username for @mention text matching (without leading @)"
+          },
+          "activeGroupsPolicy": {
+            "type": "string",
+            "enum": ["allowlist", "all"],
+            "description": "allowlist = only listed groups are active; all = all bot-member groups are active"
+          },
+          "groupPolicy": {
+            "type": "string",
+            "enum": ["open", "disabled", "allowlist"],
+            "description": "OpenClaw sender security for group messages (use open when filtering groups via activeGroupsPolicy)"
+          },
+          "groupAllowFrom": {
+            "type": "array",
+            "items": {
+              "anyOf": [{ "type": "string" }, { "type": "number" }]
+            },
+            "description": "OpenClaw group sender allowlist when groupPolicy is allowlist"
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": {
+              "anyOf": [{ "type": "string" }, { "type": "number" }]
+            },
+            "description": "OpenClaw DM sender allowlist (unused for group-only channel)"
+          },
+          "groups": {
+            "type": "object",
+            "description": "Per-group overrides keyed by chat group id",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "requireMention": {
+                  "type": "boolean",
+                  "description": "Require mentioned_user_ids or @username before dispatching to OpenClaw"
+                }
+              }
+            }
+          },
+          "staticUrl": {
+            "type": "string",
+            "description": "Optional public static host for inbound media reads (e.g. https://s.example.com)"
+          },
+          "mediaTempDir": {
+            "type": "string",
+            "description": "Optional override for inbound media temp directory root"
+          }
+        },
+        "required": ["endpoint", "tenantId", "token"]
+      }
+    }
+  }
+}
