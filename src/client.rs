@@ -12,16 +12,18 @@ use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use tonic::body::Body;
+use tonic_web::GrpcWebCall;
 
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::transport::{AuthInterceptor, normalize_api_url};
 
-type HttpClient = HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, Body>;
+/// Hyper client body type expected by `tonic_web::GrpcWebClientLayer`.
+pub(crate) type HttpClient =
+    HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, GrpcWebCall<Body>>;
 
-/// Opaque gRPC-Web handle used for unary RPCs (M1+).
+/// Opaque gRPC-Web handle used for unary RPCs.
 #[derive(Clone)]
-#[allow(dead_code)] // Fields consumed when M1 attaches tonic clients.
 pub(crate) struct UnaryHandle {
     pub(crate) base_uri: Uri,
     pub(crate) http: HttpClient,
@@ -126,8 +128,7 @@ impl Client {
         &self.base_url
     }
 
-    /// Unary RPC handle (crate-internal until M1 wrappers land).
-    #[allow(dead_code)]
+    /// Unary RPC handle.
     pub(crate) fn unary(&self) -> &UnaryHandle {
         &self.unary
     }

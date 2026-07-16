@@ -27,8 +27,7 @@ let client = Client::try_new(Config {
 // Or: Client::from_env()?
 ```
 
-**Milestone status:** M0 = construct client + transport only.  
-- **M1:** `reply_group` / typing  
+**Milestone status:** M1 = construct + `reply_group` / `send_group_text` / `set_typing`.  
 - **M2:** `subscribe_groups` with reconnect (listen → reply)  
 - **M6:** full agent-handoff docs + copyable examples  
 
