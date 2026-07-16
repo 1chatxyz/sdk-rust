@@ -169,8 +169,9 @@ Keep generated tonic types private; expose only the high-level `Client` API.
 
 - Crate: `onechat-sdk` (lib: `onechat_sdk`)
 - Semver: bump `version` in `Cargo.toml` in the releasing PR
-- CI publish workflow uses GitHub secret `CARGO_REGISTRY_TOKEN` (never commit it)
-- Publish is idempotent if the version already exists on crates.io
+- Workflow: [`.github/workflows/publish.yml`](.github/workflows/publish.yml) runs on push to `main` (and `workflow_dispatch`)
+- Uses GitHub secret `CARGO_REGISTRY_TOKEN` (never commit it)
+- Idempotent: skips `cargo publish` when `https://crates.io/api/v1/crates/onechat-sdk/<version>` already returns 200
 
 ## Do / Don’t
 
