@@ -12,11 +12,18 @@ use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use tonic::body::Body;
-use tonic_web::GrpcWebCall;
+use tonic::service::interceptor::InterceptedService;
+use tonic_web::{GrpcWebCall, GrpcWebClientLayer};
+use tower::ServiceBuilder;
 
 use crate::config::Config;
 use crate::error::{Error, Result};
+use crate::pb::genjutsu::myconversation::v1::my_conversation_client::MyConversationClient;
 use crate::transport::{AuthInterceptor, normalize_api_url};
+
+/// Authenticated gRPC-Web service stack.
+pub(crate) type AuthedGrpcWeb =
+    InterceptedService<tonic_web::GrpcWebClientService<HttpClient>, AuthInterceptor>;
 
 /// Hyper client body type expected by `tonic_web::GrpcWebClientLayer`.
 pub(crate) type HttpClient =
@@ -127,15 +134,35 @@ impl Client {
         &self.base_url
     }
 
-    /// Unary RPC handle.
-    pub(crate) fn unary(&self) -> &UnaryHandle {
-        &self.unary
+    /// Tonic client bound to the unary HTTP stack.
+    pub(crate) fn unary_rpc(&self) -> MyConversationClient<AuthedGrpcWeb> {
+        bind_rpc(
+            self.unary.http.clone(),
+            self.unary.auth.clone(),
+            self.unary.base_uri.clone(),
+        )
     }
 
-    /// Stream RPC handle.
-    pub(crate) fn stream_handle(&self) -> &StreamHandle {
-        &self.stream
+    /// Tonic client bound to the stream HTTP stack.
+    pub(crate) fn stream_rpc(&self) -> MyConversationClient<AuthedGrpcWeb> {
+        bind_rpc(
+            self.stream.http.clone(),
+            self.stream.auth.clone(),
+            self.stream.base_uri.clone(),
+        )
     }
+}
+
+fn bind_rpc(
+    http: HttpClient,
+    auth: AuthInterceptor,
+    base_uri: Uri,
+) -> MyConversationClient<AuthedGrpcWeb> {
+    let svc = ServiceBuilder::new()
+        .layer(GrpcWebClientLayer::new())
+        .service(http);
+    let svc = InterceptedService::new(svc, auth);
+    MyConversationClient::with_origin(svc, base_uri)
 }
 
 fn build_http_client() -> Result<HttpClient> {
@@ -166,8 +193,8 @@ mod tests {
     fn try_new_https_lazy() {
         let client = Client::try_new(sample_config("https://gateway.example.com")).unwrap();
         assert_eq!(client.base_url(), "https://gateway.example.com");
-        let _ = client.unary();
-        let _ = client.stream_handle();
+        let _ = client.unary_rpc();
+        let _ = client.stream_rpc();
     }
 
     #[test]

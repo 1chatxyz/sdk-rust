@@ -34,7 +34,9 @@ async fn main() -> onechat_sdk::Result<()> {
                 }
                 let _ = client.set_typing(msg.group_id, false).await;
             }
-            IncomingEvent::Typing(_) => {}
+            IncomingEvent::Typing(_)
+            | IncomingEvent::DirectMessage(_)
+            | IncomingEvent::DirectTyping { .. } => {}
         }
     }
     Ok(())
