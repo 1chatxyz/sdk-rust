@@ -29,7 +29,7 @@ Pre-uploaded URL lists + authenticated download; 5×20MB; no video in v1. myEdge
 
 `SetChatGroupMessageReaction` / `SetDirectMessageReaction`.
 
-## M6 — Agent-handoff docs
+## M6 — Agent-handoff docs ✅
 
 `AGENTS.md` + README + examples + rustdoc so another agent can integrate from the repo link alone.
 
