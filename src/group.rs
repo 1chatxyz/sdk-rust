@@ -1,22 +1,14 @@
 //! Group chat send / typing APIs.
 
-use tonic::service::interceptor::InterceptedService;
-use tonic_web::GrpcWebClientLayer;
-use tower::ServiceBuilder;
 use uuid::Uuid;
 
 use crate::chunking::chunk_text;
-use crate::client::{Client, HttpClient};
+use crate::client::Client;
 use crate::error::{Error, Result};
 use crate::mention::extract_mentioned_user_ids;
-use crate::pb::genjutsu::myconversation::v1::my_conversation_client::MyConversationClient;
 use crate::pb::genjutsu::myconversation::v1::{
     SendChatGroupMessageRequest, SignalChatGroupTypingRequest,
 };
-use crate::transport::AuthInterceptor;
-
-type GrpcWebService = tonic_web::GrpcWebClientService<HttpClient>;
-type AuthedService = InterceptedService<GrpcWebService, AuthInterceptor>;
 
 /// Result of sending one or more group message chunks.
 #[derive(Debug, Clone)]
@@ -26,14 +18,6 @@ pub struct SendGroupMessageResult {
 }
 
 impl Client {
-    fn unary_rpc(&self) -> MyConversationClient<AuthedService> {
-        let svc = ServiceBuilder::new()
-            .layer(GrpcWebClientLayer::new())
-            .service(self.unary().http.clone());
-        let svc = InterceptedService::new(svc, self.unary().auth.clone());
-        MyConversationClient::with_origin(svc, self.unary().base_uri.clone())
-    }
-
     /// Send a single group message chunk (no auto-chunking).
     pub async fn send_group_text(
         &self,

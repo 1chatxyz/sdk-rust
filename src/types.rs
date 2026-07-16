@@ -36,13 +36,43 @@ pub struct IncomingTyping {
     pub typing: bool,
 }
 
+/// A direct-message payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncomingDirectMessage {
+    /// Server message id.
+    pub id: i64,
+    /// DM thread id.
+    pub thread_id: i64,
+    /// Sender user id.
+    pub sender_user_id: i64,
+    /// Sender username (may be empty).
+    pub sender_username: String,
+    /// Message text content.
+    pub text: String,
+    /// Image attachment paths/URLs.
+    pub images: Vec<String>,
+    /// File attachment paths/URLs.
+    pub files: Vec<String>,
+}
+
 /// High-level inbound events (pings never surface here).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IncomingEvent {
     /// A chat group message.
     GroupMessage(IncomingMessage),
-    /// A typing indicator.
+    /// A typing indicator in a group.
     Typing(IncomingTyping),
+    /// A direct message.
+    DirectMessage(IncomingDirectMessage),
+    /// A typing indicator in a DM thread.
+    DirectTyping {
+        /// DM thread id.
+        thread_id: i64,
+        /// User who is typing.
+        user_id: i64,
+        /// Whether typing started or stopped.
+        typing: bool,
+    },
 }
 
 /// Filters applied inside [`crate::Client::subscribe_groups`].

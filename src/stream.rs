@@ -7,26 +7,18 @@ use std::time::{Duration, Instant};
 use futures_util::Stream;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tonic::service::interceptor::InterceptedService;
-use tonic_web::GrpcWebClientLayer;
-use tower::ServiceBuilder;
 use tracing::{debug, warn};
 
-use crate::client::{Client, HttpClient};
+use crate::client::Client;
 use crate::error::{Error, Result};
 use crate::pb::genjutsu::myconversation::v1::StreamChatGroupsRequest;
 use crate::pb::genjutsu::myconversation::v1::chat_group_stream_event::Item as StreamItem;
-use crate::pb::genjutsu::myconversation::v1::my_conversation_client::MyConversationClient;
-use crate::transport::AuthInterceptor;
 use crate::types::{IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions};
 
 const DEFAULT_IDLE: Duration = Duration::from_secs(90);
 const DEFAULT_MAX_AGE: Duration = Duration::from_secs(25 * 60);
 const MIN_RECONNECT: Duration = Duration::from_secs(2);
 const MAX_RECONNECT: Duration = Duration::from_secs(60);
-
-type GrpcWebService = tonic_web::GrpcWebClientService<HttpClient>;
-type AuthedService = InterceptedService<GrpcWebService, AuthInterceptor>;
 
 /// Compute exponential reconnect delay (2s … 60s).
 pub fn compute_reconnect_delay(attempt: u32) -> Duration {
@@ -58,14 +50,6 @@ impl Drop for GroupEventStream {
 }
 
 impl Client {
-    fn stream_rpc(&self) -> MyConversationClient<AuthedService> {
-        let svc = ServiceBuilder::new()
-            .layer(GrpcWebClientLayer::new())
-            .service(self.stream_handle().http.clone());
-        let svc = InterceptedService::new(svc, self.stream_handle().auth.clone());
-        MyConversationClient::with_origin(svc, self.stream_handle().base_uri.clone())
-    }
-
     /// Subscribe to chat-group events. Reconnects on disconnect / idle / max age.
     ///
     /// Pings are consumed internally (they reset the idle timer) and never yielded.
@@ -94,7 +78,9 @@ impl Client {
                 IncomingEvent::GroupMessage(msg) => {
                     handler(self.clone(), msg).await?;
                 }
-                IncomingEvent::Typing(_) => {}
+                IncomingEvent::Typing(_)
+                | IncomingEvent::DirectMessage(_)
+                | IncomingEvent::DirectTyping { .. } => {}
             }
         }
         Ok(())

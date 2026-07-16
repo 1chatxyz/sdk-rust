@@ -31,6 +31,7 @@
 mod chunking;
 mod client;
 mod config;
+mod dm;
 mod error;
 mod group;
 mod mention;
@@ -42,8 +43,11 @@ mod types;
 pub use chunking::{TEXT_CHUNK_LIMIT, chunk_text};
 pub use client::Client;
 pub use config::Config;
+pub use dm::DirectEventStream;
 pub use error::{Error, Result};
 pub use group::SendGroupMessageResult;
 pub use mention::{extract_mentioned_user_ids, format_mention};
 pub use stream::{GroupEventStream, compute_reconnect_delay};
-pub use types::{IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions};
+pub use types::{
+    IncomingDirectMessage, IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions,
+};
