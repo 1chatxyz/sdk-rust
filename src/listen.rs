@@ -14,7 +14,9 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
 use futures_util::FutureExt;
+#[cfg(not(target_arch = "wasm32"))]
 use futures_util::future::{Either, select};
 use tracing::{debug, warn};
 use web_time::Instant;
@@ -58,7 +60,12 @@ pub enum ListenEndReason {
 /// Result of one bounded listen session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListenSessionOutcome {
-    /// Last successfully handled (or intentionally skipped) message id.
+    /// Last message id for which the handler returned `Ok` (or was skipped).
+    ///
+    /// This is a **listen cursor** (stream consumption), not proof that deferred
+    /// side effects finished. On Workers, when unary RPCs are fired via
+    /// `spawn_local` / a background queue, persist an app-level acked resume
+    /// after those sends succeed (see `examples/cf_echo_bot`).
     pub resume_after_message_id: i64,
     /// Non-fatal end reason.
     pub reason: ListenEndReason,
@@ -76,9 +83,10 @@ impl Client {
     /// One bounded group-stream session (idle / max age / stream end).
     ///
     /// Preferred entry point on Cloudflare Workers: await inside `alarm` /
-    /// fetch, persist [`ListenSessionOutcome::resume_after_message_id`], then
-    /// schedule the next alarm. On handler failure, persist the resume id from
-    /// [`Error::Listen`] before retrying.
+    /// fetch, then schedule the next alarm. Persist
+    /// [`ListenSessionOutcome::resume_after_message_id`] when side effects run
+    /// inside the handler; when using deferred unary sends, persist an
+    /// app-level acked resume instead (see `examples/cf_echo_bot`).
     pub async fn run_group_session<F, Fut>(
         &self,
         resume_after_message_id: i64,
@@ -255,6 +263,8 @@ fn bump_resume(resume_after_message_id: &mut i64, message_id: i64) {
 }
 
 /// Queued work for the group session (messages + filtered skips in stream order).
+/// On wasm, concurrent enqueue during handlers is disabled (unary+stream deadlock).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum PendingGroup {
     Message(IncomingMessage),
     /// Filtered out (allowlist / self / mention); advance resume only when drained.
@@ -755,6 +765,9 @@ where
 
 /// Run the handler while still reading the stream so pings reset idle and
 /// additional messages are queued (FIFO) for the session loop.
+///
+/// On `wasm32`, the handler is awaited alone: concurrently polling the stream
+/// while a unary Fetch (e.g. `reply_group`) runs deadlocks under Workers.
 #[allow(clippy::too_many_arguments)]
 async fn await_group_handler<F, Fut>(
     client: &Client,
@@ -772,7 +785,26 @@ where
     Fut: Future<Output = Result<()>>,
 {
     let message_id = incoming.id;
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (stream, last_event, pending, options);
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            Err(done(*resume_after_message_id, ListenEndReason::MaxAge))
+        } else {
+            match handler(client.clone(), incoming).await {
+                Ok(()) => {
+                    bump_resume(resume_after_message_id, message_id);
+                    Ok(())
+                }
+                Err(err) => Err(fatal(*resume_after_message_id, err)),
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     let mut work = Box::pin(handler(client.clone(), incoming));
+    #[cfg(not(target_arch = "wasm32"))]
     loop {
         if started.elapsed() >= DEFAULT_MAX_AGE {
             return match work.await {
@@ -844,6 +876,7 @@ where
 }
 
 /// If `next` is already ready, enqueue it (or signal stream end/error).
+#[cfg(not(target_arch = "wasm32"))]
 fn drain_ready_group_event<F>(
     next: F,
     client: &Client,
@@ -869,6 +902,7 @@ where
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn enqueue_group_stream_event(
     event: ChatGroupStreamEvent,
     client: &Client,
@@ -888,6 +922,7 @@ fn enqueue_group_stream_event(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn drain_ready_dm_event<F>(
     next: F,
     pending: &mut VecDeque<IncomingDirectMessage>,
@@ -909,6 +944,7 @@ where
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn enqueue_dm_stream_event(
     event: DirectMessageStreamEvent,
     pending: &mut VecDeque<IncomingDirectMessage>,
@@ -946,7 +982,26 @@ where
     Fut: Future<Output = Result<()>>,
 {
     let message_id = incoming.id;
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (stream, last_event, pending);
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            Err(done(*resume_after_message_id, ListenEndReason::MaxAge))
+        } else {
+            match handler(client.clone(), incoming).await {
+                Ok(()) => {
+                    bump_resume(resume_after_message_id, message_id);
+                    Ok(())
+                }
+                Err(err) => Err(fatal(*resume_after_message_id, err)),
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     let mut work = Box::pin(handler(client.clone(), incoming));
+    #[cfg(not(target_arch = "wasm32"))]
     loop {
         if started.elapsed() >= DEFAULT_MAX_AGE {
             return match work.await {

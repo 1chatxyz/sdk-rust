@@ -7,3 +7,4 @@
 /worker
 *.wasm
 Cargo.lock
+.control_token
