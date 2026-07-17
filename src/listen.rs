@@ -768,7 +768,15 @@ where
         futures_util::pin_mut!(next);
         match timeout(wait, select(&mut work, next)).await {
             Err(()) => {
-                return Err(done(*resume_after_message_id, ListenEndReason::IdleTimeout));
+                // Stream went idle; still finish the in-flight handler so resume
+                // is not advanced past an aborted message when pending drains.
+                return match work.await {
+                    Ok(()) => {
+                        bump_resume(resume_after_message_id, message_id);
+                        Err(done(*resume_after_message_id, ListenEndReason::IdleTimeout))
+                    }
+                    Err(err) => Err(fatal(*resume_after_message_id, err)),
+                };
             }
             Ok(Either::Left((result, _))) => {
                 return match result {
@@ -852,7 +860,13 @@ where
         futures_util::pin_mut!(next);
         match timeout(wait, select(&mut work, next)).await {
             Err(()) => {
-                return Err(done(*resume_after_message_id, ListenEndReason::IdleTimeout));
+                return match work.await {
+                    Ok(()) => {
+                        bump_resume(resume_after_message_id, message_id);
+                        Err(done(*resume_after_message_id, ListenEndReason::IdleTimeout))
+                    }
+                    Err(err) => Err(fatal(*resume_after_message_id, err)),
+                };
             }
             Ok(Either::Left((result, _))) => {
                 return match result {
