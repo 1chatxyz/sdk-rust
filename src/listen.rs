@@ -5,7 +5,8 @@
 //!
 //! On Workers, call [`Client::run_group_session`] / [`Client::run_dm_session`]
 //! once per alarm (they return after idle / max age / stream end). Persist
-//! [`ListenSessionOutcome::resume_after_message_id`] and schedule the next alarm.
+//! [`ListenSessionOutcome::resume_after_message_id`] (also present on
+//! [`Error::Listen`]) and schedule the next alarm.
 //! Use [`Client::run_group_bot`] / [`Client::run_dm_bot`] on native for a
 //! forever reconnecting loop.
 
@@ -56,7 +57,7 @@ pub enum ListenEndReason {
 /// Result of one bounded listen session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListenSessionOutcome {
-    /// Pass to the next session / Durable Object storage for resume.
+    /// Last successfully handled (or intentionally skipped) message id.
     pub resume_after_message_id: i64,
     /// Non-fatal end reason.
     pub reason: ListenEndReason,
@@ -64,7 +65,10 @@ pub struct ListenSessionOutcome {
 
 enum SessionControl {
     Done(ListenSessionOutcome),
-    Fatal(Error),
+    Fatal {
+        resume_after_message_id: i64,
+        source: Error,
+    },
 }
 
 impl Client {
@@ -72,7 +76,8 @@ impl Client {
     ///
     /// Preferred entry point on Cloudflare Workers: await inside `alarm` /
     /// fetch, persist [`ListenSessionOutcome::resume_after_message_id`], then
-    /// schedule the next alarm.
+    /// schedule the next alarm. On handler failure, persist the resume id from
+    /// [`Error::Listen`] before retrying.
     pub async fn run_group_session<F, Fut>(
         &self,
         resume_after_message_id: i64,
@@ -102,7 +107,13 @@ impl Client {
         .await
         {
             SessionControl::Done(out) => Ok(out),
-            SessionControl::Fatal(err) => Err(err),
+            SessionControl::Fatal {
+                resume_after_message_id,
+                source,
+            } => Err(Error::Listen {
+                resume_after_message_id,
+                source: Box::new(source),
+            }),
         }
     }
 
@@ -126,7 +137,13 @@ impl Client {
 
         match run_one_dm_session(self, &mut resume, &mut last_event, started, &mut handler).await {
             SessionControl::Done(out) => Ok(out),
-            SessionControl::Fatal(err) => Err(err),
+            SessionControl::Fatal {
+                resume_after_message_id,
+                source,
+            } => Err(Error::Listen {
+                resume_after_message_id,
+                source: Box::new(source),
+            }),
         }
     }
 
@@ -144,26 +161,11 @@ impl Client {
         let mut reconnect_attempt: u32 = 0;
 
         loop {
-            let started = Instant::now();
-            let mut last_event = Instant::now();
-            debug!(
-                resume_after_message_id,
-                reconnect_attempt, "opening StreamChatGroups (in-task)"
-            );
-
-            let control = run_one_group_session(
-                self,
-                &options,
-                &mut resume_after_message_id,
-                &mut last_event,
-                started,
-                &mut handler,
-            )
-            .await;
-
-            match control {
-                SessionControl::Fatal(err) => return Err(err),
-                SessionControl::Done(out) => {
+            match self
+                .run_group_session(resume_after_message_id, options.clone(), &mut handler)
+                .await
+            {
+                Ok(out) => {
                     resume_after_message_id = out.resume_after_message_id;
                     match out.reason {
                         ListenEndReason::StreamEnded => {
@@ -184,6 +186,7 @@ impl Client {
                         }
                     }
                 }
+                Err(err) => return Err(err),
             }
         }
     }
@@ -199,25 +202,11 @@ impl Client {
         let mut reconnect_attempt: u32 = 0;
 
         loop {
-            let started = Instant::now();
-            let mut last_event = Instant::now();
-            debug!(
-                resume_after_message_id,
-                reconnect_attempt, "opening StreamDirectMessages (in-task)"
-            );
-
-            let control = run_one_dm_session(
-                self,
-                &mut resume_after_message_id,
-                &mut last_event,
-                started,
-                &mut handler,
-            )
-            .await;
-
-            match control {
-                SessionControl::Fatal(err) => return Err(err),
-                SessionControl::Done(out) => {
+            match self
+                .run_dm_session(resume_after_message_id, &mut handler)
+                .await
+            {
+                Ok(out) => {
                     resume_after_message_id = out.resume_after_message_id;
                     match out.reason {
                         ListenEndReason::StreamEnded => {
@@ -238,6 +227,7 @@ impl Client {
                         }
                     }
                 }
+                Err(err) => return Err(err),
             }
         }
     }
@@ -248,6 +238,19 @@ fn done(resume_after_message_id: i64, reason: ListenEndReason) -> SessionControl
         resume_after_message_id,
         reason,
     })
+}
+
+fn fatal(resume_after_message_id: i64, source: Error) -> SessionControl {
+    SessionControl::Fatal {
+        resume_after_message_id,
+        source,
+    }
+}
+
+fn bump_resume(resume_after_message_id: &mut i64, message_id: i64) {
+    if message_id > *resume_after_message_id {
+        *resume_after_message_id = message_id;
+    }
 }
 
 async fn run_one_group_session<F, Fut>(
@@ -269,7 +272,7 @@ where
     };
     let mut stream = match rpc.stream_chat_groups(request).await {
         Ok(s) => s.into_inner(),
-        Err(status) => return SessionControl::Fatal(status.into()),
+        Err(status) => return fatal(*resume_after_message_id, status.into()),
     };
 
     let mut pending: VecDeque<IncomingMessage> = VecDeque::new();
@@ -277,7 +280,15 @@ where
     loop {
         if started.elapsed() >= DEFAULT_MAX_AGE {
             debug!("stream max age reached; ending session");
-            return done(*resume_after_message_id, ListenEndReason::MaxAge);
+            return finish_group_pending(
+                client,
+                handler,
+                &mut pending,
+                resume_after_message_id,
+                started,
+                ListenEndReason::MaxAge,
+            )
+            .await;
         }
 
         while let Some(incoming) = pending.pop_front() {
@@ -290,13 +301,30 @@ where
                 &mut pending,
                 options,
                 resume_after_message_id,
+                started,
             )
             .await
             {
-                return control;
+                return settle_group_control(
+                    control,
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                )
+                .await;
             }
             if started.elapsed() >= DEFAULT_MAX_AGE {
-                return done(*resume_after_message_id, ListenEndReason::MaxAge);
+                return finish_group_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::MaxAge,
+                )
+                .await;
             }
         }
 
@@ -304,15 +332,39 @@ where
         match timeout(wait, stream.message()).await {
             Err(()) => {
                 debug!("stream idle timeout; ending session");
-                return done(*resume_after_message_id, ListenEndReason::IdleTimeout);
+                return finish_group_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::IdleTimeout,
+                )
+                .await;
             }
             Ok(Ok(None)) => {
                 debug!("stream ended by server");
-                return done(*resume_after_message_id, ListenEndReason::StreamEnded);
+                return finish_group_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::StreamEnded,
+                )
+                .await;
             }
             Ok(Err(status)) => {
                 warn!(%status, "stream error");
-                return done(*resume_after_message_id, ListenEndReason::StreamError);
+                return finish_group_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::StreamError,
+                )
+                .await;
             }
             Ok(Ok(Some(event))) => {
                 *last_event = Instant::now();
@@ -325,12 +377,79 @@ where
                     &mut stream,
                     last_event,
                     &mut pending,
+                    started,
                 )
                 .await
                 {
-                    return control;
+                    return settle_group_control(
+                        control,
+                        client,
+                        handler,
+                        &mut pending,
+                        resume_after_message_id,
+                        started,
+                    )
+                    .await;
                 }
             }
+        }
+    }
+}
+
+async fn settle_group_control<F, Fut>(
+    control: SessionControl,
+    client: &Client,
+    handler: &mut F,
+    pending: &mut VecDeque<IncomingMessage>,
+    resume_after_message_id: &mut i64,
+    started: Instant,
+) -> SessionControl
+where
+    F: FnMut(Client, IncomingMessage) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    match control {
+        SessionControl::Fatal { .. } => control,
+        SessionControl::Done(out) => {
+            *resume_after_message_id = out.resume_after_message_id;
+            finish_group_pending(
+                client,
+                handler,
+                pending,
+                resume_after_message_id,
+                started,
+                out.reason,
+            )
+            .await
+        }
+    }
+}
+
+async fn settle_dm_control<F, Fut>(
+    control: SessionControl,
+    client: &Client,
+    handler: &mut F,
+    pending: &mut VecDeque<IncomingDirectMessage>,
+    resume_after_message_id: &mut i64,
+    started: Instant,
+) -> SessionControl
+where
+    F: FnMut(Client, IncomingDirectMessage) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    match control {
+        SessionControl::Fatal { .. } => control,
+        SessionControl::Done(out) => {
+            *resume_after_message_id = out.resume_after_message_id;
+            finish_dm_pending(
+                client,
+                handler,
+                pending,
+                resume_after_message_id,
+                started,
+                out.reason,
+            )
+            .await
         }
     }
 }
@@ -353,14 +472,22 @@ where
     };
     let mut stream = match rpc.stream_direct_messages(request).await {
         Ok(s) => s.into_inner(),
-        Err(status) => return SessionControl::Fatal(status.into()),
+        Err(status) => return fatal(*resume_after_message_id, status.into()),
     };
 
     let mut pending: VecDeque<IncomingDirectMessage> = VecDeque::new();
 
     loop {
         if started.elapsed() >= DEFAULT_MAX_AGE {
-            return done(*resume_after_message_id, ListenEndReason::MaxAge);
+            return finish_dm_pending(
+                client,
+                handler,
+                &mut pending,
+                resume_after_message_id,
+                started,
+                ListenEndReason::MaxAge,
+            )
+            .await;
         }
 
         while let Some(incoming) = pending.pop_front() {
@@ -372,23 +499,68 @@ where
                 last_event,
                 &mut pending,
                 resume_after_message_id,
+                started,
             )
             .await
             {
-                return control;
+                return settle_dm_control(
+                    control,
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                )
+                .await;
             }
             if started.elapsed() >= DEFAULT_MAX_AGE {
-                return done(*resume_after_message_id, ListenEndReason::MaxAge);
+                return finish_dm_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::MaxAge,
+                )
+                .await;
             }
         }
 
         let wait = DEFAULT_IDLE.saturating_sub(last_event.elapsed());
         match timeout(wait, stream.message()).await {
-            Err(()) => return done(*resume_after_message_id, ListenEndReason::IdleTimeout),
-            Ok(Ok(None)) => {
-                return done(*resume_after_message_id, ListenEndReason::StreamEnded);
+            Err(()) => {
+                return finish_dm_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::IdleTimeout,
+                )
+                .await;
             }
-            Ok(Err(_)) => return done(*resume_after_message_id, ListenEndReason::StreamError),
+            Ok(Ok(None)) => {
+                return finish_dm_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::StreamEnded,
+                )
+                .await;
+            }
+            Ok(Err(_)) => {
+                return finish_dm_pending(
+                    client,
+                    handler,
+                    &mut pending,
+                    resume_after_message_id,
+                    started,
+                    ListenEndReason::StreamError,
+                )
+                .await;
+            }
             Ok(Ok(Some(event))) => {
                 *last_event = Instant::now();
                 if let Err(control) = apply_dm_event(
@@ -399,14 +571,81 @@ where
                     &mut stream,
                     last_event,
                     &mut pending,
+                    started,
                 )
                 .await
                 {
-                    return control;
+                    return settle_dm_control(
+                        control,
+                        client,
+                        handler,
+                        &mut pending,
+                        resume_after_message_id,
+                        started,
+                    )
+                    .await;
                 }
             }
         }
     }
+}
+
+/// Drain queued messages without the stream (session is ending).
+async fn finish_group_pending<F, Fut>(
+    client: &Client,
+    handler: &mut F,
+    pending: &mut VecDeque<IncomingMessage>,
+    resume_after_message_id: &mut i64,
+    started: Instant,
+    reason: ListenEndReason,
+) -> SessionControl
+where
+    F: FnMut(Client, IncomingMessage) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    while let Some(incoming) = pending.pop_front() {
+        if started.elapsed() >= DEFAULT_MAX_AGE && reason != ListenEndReason::MaxAge {
+            return done(*resume_after_message_id, ListenEndReason::MaxAge);
+        }
+        let id = incoming.id;
+        match handler(client.clone(), incoming).await {
+            Ok(()) => bump_resume(resume_after_message_id, id),
+            Err(err) => return fatal(*resume_after_message_id, err),
+        }
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            // Leave remaining pending unhandled so the next session redelivers.
+            return done(*resume_after_message_id, ListenEndReason::MaxAge);
+        }
+    }
+    done(*resume_after_message_id, reason)
+}
+
+async fn finish_dm_pending<F, Fut>(
+    client: &Client,
+    handler: &mut F,
+    pending: &mut VecDeque<IncomingDirectMessage>,
+    resume_after_message_id: &mut i64,
+    started: Instant,
+    reason: ListenEndReason,
+) -> SessionControl
+where
+    F: FnMut(Client, IncomingDirectMessage) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    while let Some(incoming) = pending.pop_front() {
+        if started.elapsed() >= DEFAULT_MAX_AGE && reason != ListenEndReason::MaxAge {
+            return done(*resume_after_message_id, ListenEndReason::MaxAge);
+        }
+        let id = incoming.id;
+        match handler(client.clone(), incoming).await {
+            Ok(()) => bump_resume(resume_after_message_id, id),
+            Err(err) => return fatal(*resume_after_message_id, err),
+        }
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            return done(*resume_after_message_id, ListenEndReason::MaxAge);
+        }
+    }
+    done(*resume_after_message_id, reason)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -419,6 +658,7 @@ async fn apply_group_event<F, Fut>(
     stream: &mut tonic::Streaming<ChatGroupStreamEvent>,
     last_event: &mut Instant,
     pending: &mut VecDeque<IncomingMessage>,
+    started: Instant,
 ) -> std::result::Result<(), SessionControl>
 where
     F: FnMut(Client, IncomingMessage) -> Fut,
@@ -427,10 +667,7 @@ where
     match event.item {
         Some(StreamItem::Ping(_)) => Ok(()),
         Some(StreamItem::Message(msg)) => {
-            if msg.id > *resume_after_message_id {
-                *resume_after_message_id = msg.id;
-            }
-            if let Some(incoming) = map_group_message(msg, client, options) {
+            if let Some(incoming) = map_group_message(msg.clone(), client, options) {
                 await_group_handler(
                     client,
                     handler,
@@ -440,9 +677,11 @@ where
                     pending,
                     options,
                     resume_after_message_id,
+                    started,
                 )
                 .await
             } else {
+                bump_resume(resume_after_message_id, msg.id);
                 Ok(())
             }
         }
@@ -450,6 +689,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn apply_dm_event<F, Fut>(
     event: DirectMessageStreamEvent,
     client: &Client,
@@ -458,6 +698,7 @@ async fn apply_dm_event<F, Fut>(
     stream: &mut tonic::Streaming<DirectMessageStreamEvent>,
     last_event: &mut Instant,
     pending: &mut VecDeque<IncomingDirectMessage>,
+    started: Instant,
 ) -> std::result::Result<(), SessionControl>
 where
     F: FnMut(Client, IncomingDirectMessage) -> Fut,
@@ -466,9 +707,6 @@ where
     match event.item {
         Some(DmStreamItem::Ping(_)) => Ok(()),
         Some(DmStreamItem::Message(msg)) => {
-            if msg.id > *resume_after_message_id {
-                *resume_after_message_id = msg.id;
-            }
             let incoming = IncomingDirectMessage {
                 id: msg.id,
                 thread_id: msg.thread_id,
@@ -486,6 +724,7 @@ where
                 last_event,
                 pending,
                 resume_after_message_id,
+                started,
             )
             .await
         }
@@ -505,13 +744,25 @@ async fn await_group_handler<F, Fut>(
     pending: &mut VecDeque<IncomingMessage>,
     options: &SubscribeOptions,
     resume_after_message_id: &mut i64,
+    started: Instant,
 ) -> std::result::Result<(), SessionControl>
 where
     F: FnMut(Client, IncomingMessage) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
+    let message_id = incoming.id;
     let mut work = Box::pin(handler(client.clone(), incoming));
     loop {
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            return match work.await {
+                Ok(()) => {
+                    bump_resume(resume_after_message_id, message_id);
+                    Err(done(*resume_after_message_id, ListenEndReason::MaxAge))
+                }
+                Err(err) => Err(fatal(*resume_after_message_id, err)),
+            };
+        }
+
         let wait = DEFAULT_IDLE.saturating_sub(last_event.elapsed());
         let next = stream.message();
         futures_util::pin_mut!(next);
@@ -520,20 +771,32 @@ where
                 return Err(done(*resume_after_message_id, ListenEndReason::IdleTimeout));
             }
             Ok(Either::Left((result, _))) => {
-                return result.map_err(SessionControl::Fatal);
+                return match result {
+                    Ok(()) => {
+                        bump_resume(resume_after_message_id, message_id);
+                        Ok(())
+                    }
+                    Err(err) => Err(fatal(*resume_after_message_id, err)),
+                };
             }
             Ok(Either::Right((msg_res, _))) => match msg_res {
                 Ok(None) => {
                     return match work.await {
-                        Ok(()) => Err(done(*resume_after_message_id, ListenEndReason::StreamEnded)),
-                        Err(err) => Err(SessionControl::Fatal(err)),
+                        Ok(()) => {
+                            bump_resume(resume_after_message_id, message_id);
+                            Err(done(*resume_after_message_id, ListenEndReason::StreamEnded))
+                        }
+                        Err(err) => Err(fatal(*resume_after_message_id, err)),
                     };
                 }
                 Err(status) => {
                     warn!(%status, "stream error during handler");
                     return match work.await {
-                        Ok(()) => Err(done(*resume_after_message_id, ListenEndReason::StreamError)),
-                        Err(err) => Err(SessionControl::Fatal(err)),
+                        Ok(()) => {
+                            bump_resume(resume_after_message_id, message_id);
+                            Err(done(*resume_after_message_id, ListenEndReason::StreamError))
+                        }
+                        Err(err) => Err(fatal(*resume_after_message_id, err)),
                     };
                 }
                 Ok(Some(event)) => {
@@ -541,11 +804,11 @@ where
                     match event.item {
                         Some(StreamItem::Ping(_)) => {}
                         Some(StreamItem::Message(msg)) => {
-                            if msg.id > *resume_after_message_id {
-                                *resume_after_message_id = msg.id;
-                            }
-                            if let Some(incoming) = map_group_message(msg, client, options) {
+                            if let Some(incoming) = map_group_message(msg.clone(), client, options)
+                            {
                                 pending.push_back(incoming);
+                            } else {
+                                bump_resume(resume_after_message_id, msg.id);
                             }
                         }
                         _ => {}
@@ -556,6 +819,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn await_dm_handler<F, Fut>(
     client: &Client,
     handler: &mut F,
@@ -564,13 +828,25 @@ async fn await_dm_handler<F, Fut>(
     last_event: &mut Instant,
     pending: &mut VecDeque<IncomingDirectMessage>,
     resume_after_message_id: &mut i64,
+    started: Instant,
 ) -> std::result::Result<(), SessionControl>
 where
     F: FnMut(Client, IncomingDirectMessage) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
+    let message_id = incoming.id;
     let mut work = Box::pin(handler(client.clone(), incoming));
     loop {
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            return match work.await {
+                Ok(()) => {
+                    bump_resume(resume_after_message_id, message_id);
+                    Err(done(*resume_after_message_id, ListenEndReason::MaxAge))
+                }
+                Err(err) => Err(fatal(*resume_after_message_id, err)),
+            };
+        }
+
         let wait = DEFAULT_IDLE.saturating_sub(last_event.elapsed());
         let next = stream.message();
         futures_util::pin_mut!(next);
@@ -579,19 +855,31 @@ where
                 return Err(done(*resume_after_message_id, ListenEndReason::IdleTimeout));
             }
             Ok(Either::Left((result, _))) => {
-                return result.map_err(SessionControl::Fatal);
+                return match result {
+                    Ok(()) => {
+                        bump_resume(resume_after_message_id, message_id);
+                        Ok(())
+                    }
+                    Err(err) => Err(fatal(*resume_after_message_id, err)),
+                };
             }
             Ok(Either::Right((msg_res, _))) => match msg_res {
                 Ok(None) => {
                     return match work.await {
-                        Ok(()) => Err(done(*resume_after_message_id, ListenEndReason::StreamEnded)),
-                        Err(err) => Err(SessionControl::Fatal(err)),
+                        Ok(()) => {
+                            bump_resume(resume_after_message_id, message_id);
+                            Err(done(*resume_after_message_id, ListenEndReason::StreamEnded))
+                        }
+                        Err(err) => Err(fatal(*resume_after_message_id, err)),
                     };
                 }
                 Err(_) => {
                     return match work.await {
-                        Ok(()) => Err(done(*resume_after_message_id, ListenEndReason::StreamError)),
-                        Err(err) => Err(SessionControl::Fatal(err)),
+                        Ok(()) => {
+                            bump_resume(resume_after_message_id, message_id);
+                            Err(done(*resume_after_message_id, ListenEndReason::StreamError))
+                        }
+                        Err(err) => Err(fatal(*resume_after_message_id, err)),
                     };
                 }
                 Ok(Some(event)) => {
@@ -599,9 +887,6 @@ where
                     match event.item {
                         Some(DmStreamItem::Ping(_)) => {}
                         Some(DmStreamItem::Message(msg)) => {
-                            if msg.id > *resume_after_message_id {
-                                *resume_after_message_id = msg.id;
-                            }
                             pending.push_back(IncomingDirectMessage {
                                 id: msg.id,
                                 thread_id: msg.thread_id,

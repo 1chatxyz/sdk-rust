@@ -63,6 +63,7 @@ let outcome = client
     })
     .await?;
 // persist outcome.resume_after_message_id; schedule next alarm
+// on Err(Error::Listen { resume_after_message_id, .. }) persist that resume too
 ```
 
 Live templates:
