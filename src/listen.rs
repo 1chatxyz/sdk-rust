@@ -253,6 +253,13 @@ fn bump_resume(resume_after_message_id: &mut i64, message_id: i64) {
     }
 }
 
+/// Queued work for the group session (messages + filtered skips in stream order).
+enum PendingGroup {
+    Message(IncomingMessage),
+    /// Filtered out (allowlist / self / mention); advance resume only when drained.
+    Skipped(i64),
+}
+
 async fn run_one_group_session<F, Fut>(
     client: &Client,
     options: &SubscribeOptions,
@@ -275,7 +282,7 @@ where
         Err(status) => return fatal(*resume_after_message_id, status.into()),
     };
 
-    let mut pending: VecDeque<IncomingMessage> = VecDeque::new();
+    let mut pending: VecDeque<PendingGroup> = VecDeque::new();
 
     loop {
         if started.elapsed() >= DEFAULT_MAX_AGE {
@@ -291,29 +298,36 @@ where
             .await;
         }
 
-        while let Some(incoming) = pending.pop_front() {
-            if let Err(control) = await_group_handler(
-                client,
-                handler,
-                incoming,
-                &mut stream,
-                last_event,
-                &mut pending,
-                options,
-                resume_after_message_id,
-                started,
-            )
-            .await
-            {
-                return settle_group_control(
-                    control,
-                    client,
-                    handler,
-                    &mut pending,
-                    resume_after_message_id,
-                    started,
-                )
-                .await;
+        while let Some(item) = pending.pop_front() {
+            match item {
+                PendingGroup::Skipped(id) => {
+                    bump_resume(resume_after_message_id, id);
+                }
+                PendingGroup::Message(incoming) => {
+                    if let Err(control) = await_group_handler(
+                        client,
+                        handler,
+                        incoming,
+                        &mut stream,
+                        last_event,
+                        &mut pending,
+                        options,
+                        resume_after_message_id,
+                        started,
+                    )
+                    .await
+                    {
+                        return settle_group_control(
+                            control,
+                            client,
+                            handler,
+                            &mut pending,
+                            resume_after_message_id,
+                            started,
+                        )
+                        .await;
+                    }
+                }
             }
             if started.elapsed() >= DEFAULT_MAX_AGE {
                 return finish_group_pending(
@@ -400,7 +414,7 @@ async fn settle_group_control<F, Fut>(
     control: SessionControl,
     client: &Client,
     handler: &mut F,
-    pending: &mut VecDeque<IncomingMessage>,
+    pending: &mut VecDeque<PendingGroup>,
     resume_after_message_id: &mut i64,
     started: Instant,
 ) -> SessionControl
@@ -594,7 +608,7 @@ where
 async fn finish_group_pending<F, Fut>(
     client: &Client,
     handler: &mut F,
-    pending: &mut VecDeque<IncomingMessage>,
+    pending: &mut VecDeque<PendingGroup>,
     resume_after_message_id: &mut i64,
     started: Instant,
     reason: ListenEndReason,
@@ -603,14 +617,19 @@ where
     F: FnMut(Client, IncomingMessage) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
-    while let Some(incoming) = pending.pop_front() {
+    while let Some(item) = pending.pop_front() {
         if started.elapsed() >= DEFAULT_MAX_AGE && reason != ListenEndReason::MaxAge {
             return done(*resume_after_message_id, ListenEndReason::MaxAge);
         }
-        let id = incoming.id;
-        match handler(client.clone(), incoming).await {
-            Ok(()) => bump_resume(resume_after_message_id, id),
-            Err(err) => return fatal(*resume_after_message_id, err),
+        match item {
+            PendingGroup::Skipped(id) => bump_resume(resume_after_message_id, id),
+            PendingGroup::Message(incoming) => {
+                let id = incoming.id;
+                match handler(client.clone(), incoming).await {
+                    Ok(()) => bump_resume(resume_after_message_id, id),
+                    Err(err) => return fatal(*resume_after_message_id, err),
+                }
+            }
         }
         if started.elapsed() >= DEFAULT_MAX_AGE {
             // Leave remaining pending unhandled so the next session redelivers.
@@ -657,7 +676,7 @@ async fn apply_group_event<F, Fut>(
     handler: &mut F,
     stream: &mut tonic::Streaming<ChatGroupStreamEvent>,
     last_event: &mut Instant,
-    pending: &mut VecDeque<IncomingMessage>,
+    pending: &mut VecDeque<PendingGroup>,
     started: Instant,
 ) -> std::result::Result<(), SessionControl>
 where
@@ -681,6 +700,7 @@ where
                 )
                 .await
             } else {
+                // Outer loop only runs with an empty pending queue.
                 bump_resume(resume_after_message_id, msg.id);
                 Ok(())
             }
@@ -741,7 +761,7 @@ async fn await_group_handler<F, Fut>(
     incoming: IncomingMessage,
     stream: &mut tonic::Streaming<ChatGroupStreamEvent>,
     last_event: &mut Instant,
-    pending: &mut VecDeque<IncomingMessage>,
+    pending: &mut VecDeque<PendingGroup>,
     options: &SubscribeOptions,
     resume_after_message_id: &mut i64,
     started: Instant,
@@ -814,9 +834,10 @@ where
                         Some(StreamItem::Message(msg)) => {
                             if let Some(incoming) = map_group_message(msg.clone(), client, options)
                             {
-                                pending.push_back(incoming);
+                                pending.push_back(PendingGroup::Message(incoming));
                             } else {
-                                bump_resume(resume_after_message_id, msg.id);
+                                // Keep stream order: do not bump past lower pending ids.
+                                pending.push_back(PendingGroup::Skipped(msg.id));
                             }
                         }
                         _ => {}
