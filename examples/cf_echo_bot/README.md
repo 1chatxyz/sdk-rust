@@ -16,9 +16,11 @@ Standalone package (not a Cargo workspace member) so host `cargo test` / clippy 
 ```bash
 cd examples/cf_echo_bot
 cp .dev.vars.example .dev.vars
-# fill API_1CHAT_URL, TENANT_ID, BOT_TOKEN, CONTROL_TOKEN
-# optional: ONECHAT_USER_ID / ONECHAT_USERNAME
+# fill API_1CHAT_URL, TENANT_ID, BOT_TOKEN, ONECHAT_USER_ID, CONTROL_TOKEN
+# optional: ONECHAT_USERNAME
 ```
+
+`ONECHAT_USER_ID` is **required** so `ignore_self` prevents the bot from echoing its own replies.
 
 ## Build / run
 

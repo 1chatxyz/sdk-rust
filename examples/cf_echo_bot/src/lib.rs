@@ -229,7 +229,7 @@ impl DurableObject for BotSession {
                     }
                     Err(e) => {
                         self.set_running(false).await?;
-                        let _ = self.state.storage().set_alarm(Duration::from_secs(2)).await;
+                        // Do not schedule an alarm — this route is one-shot only.
                         return Err(e);
                     }
                 };
