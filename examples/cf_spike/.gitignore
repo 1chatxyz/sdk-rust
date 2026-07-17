@@ -1,0 +1,9 @@
+/target
+/build
+/build-dry
+/node_modules
+/.dev.vars
+/.wrangler
+/worker
+*.wasm
+Cargo.lock

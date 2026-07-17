@@ -1,0 +1,14 @@
+name = "onechat-cf-spike"
+main = "build/worker/shim.mjs"
+compatibility_date = "2024-12-01"
+workers_dev = true
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+[durable_objects]
+bindings = [{ name = "BOT_SESSION", class_name = "BotSession" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["BotSession"]

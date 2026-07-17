@@ -24,3 +24,9 @@ target
 reference/
 
 .vscode/
+
+# Cloudflare Workers spike / examples (local)
+examples/**/.dev.vars
+examples/**/node_modules/
+examples/**/build/
+examples/cf_spike/Cargo.lock

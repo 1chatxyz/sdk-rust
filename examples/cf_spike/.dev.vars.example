@@ -1,0 +1,8 @@
+# Local Wrangler secrets — copy to .dev.vars (gitignored). Never commit real values.
+API_1CHAT_URL=https://gateway.example.com
+TENANT_ID=
+BOT_TOKEN=
+CHANNEL_ID_TEST=
+CONTROL_TOKEN=replace-me
+# Optional: shorter sessions while iterating (default 120, max 840)
+SESSION_SECS=120
