@@ -782,13 +782,17 @@ where
 
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (stream, last_event, pending, options, started);
-        match handler(client.clone(), incoming).await {
-            Ok(()) => {
-                bump_resume(resume_after_message_id, message_id);
-                Ok(())
+        let _ = (stream, last_event, pending, options);
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            Err(done(*resume_after_message_id, ListenEndReason::MaxAge))
+        } else {
+            match handler(client.clone(), incoming).await {
+                Ok(()) => {
+                    bump_resume(resume_after_message_id, message_id);
+                    Ok(())
+                }
+                Err(err) => Err(fatal(*resume_after_message_id, err)),
             }
-            Err(err) => Err(fatal(*resume_after_message_id, err)),
         }
     }
 
@@ -975,13 +979,17 @@ where
 
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (stream, last_event, pending, started);
-        match handler(client.clone(), incoming).await {
-            Ok(()) => {
-                bump_resume(resume_after_message_id, message_id);
-                Ok(())
+        let _ = (stream, last_event, pending);
+        if started.elapsed() >= DEFAULT_MAX_AGE {
+            Err(done(*resume_after_message_id, ListenEndReason::MaxAge))
+        } else {
+            match handler(client.clone(), incoming).await {
+                Ok(()) => {
+                    bump_resume(resume_after_message_id, message_id);
+                    Ok(())
+                }
+                Err(err) => Err(fatal(*resume_after_message_id, err)),
             }
-            Err(err) => Err(fatal(*resume_after_message_id, err)),
         }
     }
 

@@ -4,11 +4,13 @@
 //! persist `resume_after_message_id`, and reschedule. Control routes require
 //! `Authorization: Bearer $CONTROL_TOKEN`.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use onechat_sdk::{Client, Config, Error as SdkError, ListenEndReason, SubscribeOptions};
+use onechat_sdk::{
+    Client, Config, Error as SdkError, IncomingMessage, ListenEndReason, SubscribeOptions,
+};
 use serde::Serialize;
 use worker::{
     Context, DurableObject, Env, Error, Method, Request, Response, Result, State, Storage,
@@ -99,16 +101,18 @@ fn end_reason_label(reason: ListenEndReason) -> &'static str {
 
 async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport> {
     let client = sdk_client(env)?;
-    let mut resume_after_message_id = storage.get::<i64>(STORAGE_RESUME).await?.unwrap_or(0);
-    let messages_echoed = Rc::new(Cell::new(0u32));
-    let counter = Rc::clone(&messages_echoed);
+    let resume_before = storage.get::<i64>(STORAGE_RESUME).await?.unwrap_or(0);
+    let batch: Rc<RefCell<Vec<IncomingMessage>>> = Rc::new(RefCell::new(Vec::new()));
+    let batch_h = Rc::clone(&batch);
 
+    // Phase 1: listen only. Awaiting unary while the stream is open deadlocks
+    // Fetch on Workers — queue inbound messages and reply after the session ends.
     let outcome = match client
         .run_group_session(
-            resume_after_message_id,
+            resume_before,
             SubscribeOptions::new(),
-            move |client, msg| {
-                let counter = Rc::clone(&counter);
+            move |_client, msg| {
+                let batch_h = Rc::clone(&batch_h);
                 async move {
                     console_log!(
                         "echo inbound id={} group={} from={} text_len={}",
@@ -117,18 +121,7 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
                         msg.sender_user_id,
                         msg.text.len()
                     );
-                    // Do not await unary while the listen stream is open — Workers
-                    // Fetch deadlocks concurrent unary + streaming to the same origin.
-                    let group_id = msg.group_id;
-                    let reply = format!("echo: {}", msg.text);
-                    let client = client.clone();
-                    wasm_bindgen_futures::spawn_local(async move {
-                        match client.reply_group(group_id, reply).await {
-                            Ok(_) => console_log!("echo reply ok group={group_id}"),
-                            Err(err) => console_log!("echo reply err: {err}"),
-                        }
-                    });
-                    counter.set(counter.get().saturating_add(1));
+                    batch_h.borrow_mut().push(msg);
                     Ok(())
                 }
             },
@@ -140,19 +133,46 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
             resume_after_message_id: r,
             source,
         }) => {
-            resume_after_message_id = r;
-            storage.put(STORAGE_RESUME, resume_after_message_id).await?;
+            storage.put(STORAGE_RESUME, r).await?;
             return Err(Error::RustError(format!("listen: {source} (resume={r})")));
         }
         Err(err) => return Err(Error::RustError(format!("listen: {err}"))),
     };
 
-    resume_after_message_id = outcome.resume_after_message_id;
-    storage.put(STORAGE_RESUME, resume_after_message_id).await?;
+    // Phase 2: stream is closed — safe to await unary replies.
+    let mut messages_echoed = 0u32;
+    let mut resume_after_message_id = resume_before;
+    let pending = batch.take();
+    for msg in pending {
+        let reply = format!("echo: {}", msg.text);
+        match client.reply_group(msg.group_id, reply).await {
+            Ok(_) => {
+                console_log!("echo reply ok id={} group={}", msg.id, msg.group_id);
+                resume_after_message_id = msg.id;
+                messages_echoed = messages_echoed.saturating_add(1);
+            }
+            Err(err) => {
+                storage
+                    .put(STORAGE_RESUME, resume_after_message_id)
+                    .await?;
+                return Err(Error::RustError(format!(
+                    "reply failed after resume {resume_after_message_id}: {err}"
+                )));
+            }
+        }
+    }
+
+    // If nothing was queued (idle/pings only), keep the session resume cursor.
+    if messages_echoed == 0 {
+        resume_after_message_id = outcome.resume_after_message_id;
+    }
+    storage
+        .put(STORAGE_RESUME, resume_after_message_id)
+        .await?;
 
     let report = SessionReport {
         resume_after_message_id,
-        messages_echoed: messages_echoed.get(),
+        messages_echoed,
         ended_reason: end_reason_label(outcome.reason).into(),
     };
     let status_json = serde_json::to_string(&report)
