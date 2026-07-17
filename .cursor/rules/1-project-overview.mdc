@@ -39,7 +39,7 @@ When a PR is merged to `main`, M7 adds GitHub Actions to build and `cargo publis
 - `proto/` — protobuf sources (`myconversation/api/…`) plus vendored `google/api` and `validate`
 - `build.rs` — `tonic-build` client codegen
 - `reference/` — local-only TypeScript/Python samples (gitignored; do not push)
-- `.cursor/plans/2_roadmap.md` — milestones M0–M7
+- `.cursor/plans/2_roadmap.md` — milestones M0–M8
 
 ## Workflow
 
