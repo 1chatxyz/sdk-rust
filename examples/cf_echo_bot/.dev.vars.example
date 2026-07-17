@@ -1,0 +1,11 @@
+# Local Wrangler secrets — copy to .dev.vars (gitignored). Never commit real values.
+API_1CHAT_URL=https://gateway.example.com
+TENANT_ID=
+BOT_TOKEN=
+# Optional self-filter / mention matching
+ONECHAT_USER_ID=
+ONECHAT_USERNAME=
+CONTROL_TOKEN=replace-me
+# Optional: shorter sessions while iterating (SDK wasm max age is ~14m)
+# SESSION_SECS is unused by the SDK session itself; kept for docs parity with spike.
+SESSION_SECS=120

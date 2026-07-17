@@ -74,6 +74,8 @@ cargo run --example send_group_message -- "hello"
 # needs CHANNEL_ID_TEST
 ```
 
+Workers (Durable Object + SDK sessions): see [`examples/cf_echo_bot/`](examples/cf_echo_bot/).
+
 ## Public API map
 
 | Area | Methods / types |
