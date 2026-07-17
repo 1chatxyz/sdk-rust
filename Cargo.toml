@@ -1,6 +1,6 @@
 [package]
 name = "onechat-sdk"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Rust SDK for 1chat.xyz (gRPC-Web + server streaming)"
@@ -30,6 +30,7 @@ tonic-prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 url = "2"
+web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hyper = { version = "1", features = ["client", "http1"] }

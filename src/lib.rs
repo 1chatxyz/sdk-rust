@@ -5,12 +5,12 @@
 //!
 //! # Features
 //!
-//! - Groups: `reply_group`, `subscribe_groups` / `run_group_bot` (auto-reconnect; native)
-//! - DMs: `reply_dm`, `subscribe_dms` (native), `create_or_get_dm`
+//! - Groups: `reply_group`, `run_group_bot` (in-task reconnect; all targets), `subscribe_groups` (native)
+//! - DMs: `reply_dm`, `run_dm_bot`, `subscribe_dms` (native), `create_or_get_dm`
 //! - Media: `reply_group_with_media`, `download_media_bytes`, `download_media` (native path write)
 //! - Reactions: `react_group_message`, `react_dm_message`
 //! - Mentions: [`format_mention`], chunking via [`chunk_text`]
-//! - `wasm32`: unary/send RPCs via Fetch; long-lived `subscribe_*` lands in a follow-up
+//! - `wasm32`: Fetch gRPC-Web + in-task `run_*_bot` (use inside a Durable Object session)
 //!
 //! Agent integration guide: `AGENTS.md`. Roadmap: `.cursor/plans/2_roadmap.md`.
 //!
@@ -32,12 +32,14 @@
 
 #![deny(missing_docs)]
 
+mod async_time;
 mod chunking;
 mod client;
 mod config;
 mod dm;
 mod error;
 mod group;
+mod listen;
 mod media;
 mod mention;
 mod pb;

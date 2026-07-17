@@ -141,7 +141,6 @@ impl Client {
     }
 
     /// Tonic client bound to the stream HTTP stack.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // Phase 2: in-task subscribe
     pub(crate) fn stream_rpc(&self) -> MyConversationClient<AuthedGrpcWeb> {
         #[cfg(not(target_arch = "wasm32"))]
         {

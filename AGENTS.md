@@ -65,8 +65,8 @@ cargo run --example send_group_message -- "hello"
 |------|-----------------|
 | Config | `Config`, `Client::from_env`, `Client::try_new` |
 | Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `set_typing` |
-| Group stream | `subscribe_groups`, `run_group_bot`, `SubscribeOptions`, `IncomingEvent` |
-| DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `subscribe_dms` |
+| Group stream | `run_group_bot` (all targets; in-task reconnect), `subscribe_groups` (native), `SubscribeOptions`, `IncomingEvent` |
+| DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `run_dm_bot`, `subscribe_dms` (native) |
 | Media | `MediaUrls`, `media_urls_from_paths`, `download_media_bytes`, `download_media` (native path; max 5×20MB; **no video**) |
 | Reactions | `react_group_message`, `react_dm_message` |
 | Mentions | `format_mention` → `[[@Name:id]]`, `extract_mentioned_user_ids` |
@@ -122,7 +122,7 @@ while let Some(event) = dms.next().await {
 
 ### Stream reconnect (built-in)
 
-`subscribe_groups` / `subscribe_dms` reconnect on disconnect, idle (~90s; pings reset idle), and max age (~25m). Resume uses the last message id. Backoff is 2s → 60s. Pings never surface as `IncomingEvent`.
+`run_group_bot` / `run_dm_bot` (all targets) and native `subscribe_groups` / `subscribe_dms` reconnect on disconnect, idle (~90s; pings reset idle), and max age (~25m native; ~14m on `wasm32` for Workers DO alarms). Resume uses the last message id. Backoff is 2s → 60s. Pings never surface as `IncomingEvent`. On Workers, await `run_*_bot` inside a Durable Object session (alarm/fetch), not a forever Cron.
 
 ## Repository layout
 
