@@ -27,6 +27,9 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
+      - name: Ensure wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 

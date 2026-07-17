@@ -3,7 +3,6 @@
 use std::fmt;
 
 use http::Uri;
-use tonic::service::interceptor::InterceptedService;
 use tonic_web_wasm_client::Client as WasmGrpcClient;
 use tonic_web_wasm_client::options::{Credentials, FetchOptions};
 
@@ -11,7 +10,8 @@ use crate::error::Result;
 use crate::pb::genjutsu::myconversation::v1::my_conversation_client::MyConversationClient;
 use crate::transport::AuthInterceptor;
 
-pub(crate) type AuthedGrpcWeb = InterceptedService<WasmGrpcClient, AuthInterceptor>;
+pub(crate) type AuthedGrpcWeb =
+    tonic::service::interceptor::InterceptedService<WasmGrpcClient, AuthInterceptor>;
 
 #[derive(Clone)]
 pub(crate) struct UnaryHandle {
@@ -49,10 +49,11 @@ impl fmt::Debug for StreamHandle {
 pub(crate) fn bind_rpc(
     transport: WasmGrpcClient,
     auth: AuthInterceptor,
-    base_uri: Uri,
+    _base_uri: Uri,
 ) -> MyConversationClient<AuthedGrpcWeb> {
-    let svc = InterceptedService::new(transport, auth);
-    MyConversationClient::with_origin(svc, base_uri)
+    // Do not use `with_origin`: tonic-web-wasm-client already owns `base_url` and
+    // concatenates it with the request path. Absolute origins double-prefix URLs.
+    MyConversationClient::with_interceptor(transport, auth)
 }
 
 pub(crate) fn build_transport(base_url: &str) -> Result<WasmGrpcClient> {
