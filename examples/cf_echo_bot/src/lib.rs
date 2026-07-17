@@ -105,14 +105,25 @@ impl ReplyWorker {
         }
     }
 
+    /// Block until the queue is empty and no drain task is running.
+    /// Required before persisting resume / scheduling the next alarm so we do
+    /// not open a second listen session while unary replies are still in flight.
     async fn wait_idle(&self) {
-        for _ in 0..400 {
+        let mut ticks = 0u32;
+        loop {
             if !self.running.get() && self.queue.borrow().is_empty() {
                 return;
             }
+            ticks = ticks.saturating_add(1);
+            if ticks % 200 == 0 {
+                console_log!(
+                    "reply worker still draining (queued={} running={})",
+                    self.queue.borrow().len(),
+                    self.running.get()
+                );
+            }
             TimeoutFuture::new(50).await;
         }
-        console_log!("warning: reply worker still busy after drain wait");
     }
 }
 

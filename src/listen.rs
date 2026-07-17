@@ -60,7 +60,12 @@ pub enum ListenEndReason {
 /// Result of one bounded listen session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListenSessionOutcome {
-    /// Last successfully handled (or intentionally skipped) message id.
+    /// Last message id for which the handler returned `Ok` (or was skipped).
+    ///
+    /// This is a **listen cursor** (stream consumption), not proof that deferred
+    /// side effects finished. On Workers, when unary RPCs are fired via
+    /// `spawn_local` / a background queue, persist an app-level acked resume
+    /// after those sends succeed (see `examples/cf_echo_bot`).
     pub resume_after_message_id: i64,
     /// Non-fatal end reason.
     pub reason: ListenEndReason,
@@ -78,9 +83,10 @@ impl Client {
     /// One bounded group-stream session (idle / max age / stream end).
     ///
     /// Preferred entry point on Cloudflare Workers: await inside `alarm` /
-    /// fetch, persist [`ListenSessionOutcome::resume_after_message_id`], then
-    /// schedule the next alarm. On handler failure, persist the resume id from
-    /// [`Error::Listen`] before retrying.
+    /// fetch, then schedule the next alarm. Persist
+    /// [`ListenSessionOutcome::resume_after_message_id`] when side effects run
+    /// inside the handler; when using deferred unary sends, persist an
+    /// app-level acked resume instead (see `examples/cf_echo_bot`).
     pub async fn run_group_session<F, Fut>(
         &self,
         resume_after_message_id: i64,

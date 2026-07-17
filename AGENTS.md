@@ -51,20 +51,9 @@ client
     .await?;
 ```
 
-On Cloudflare Workers, run **one** bounded session per Durable Object alarm and persist resume:
+On Cloudflare Workers, run **one** bounded session per Durable Object alarm. Prefer the [`examples/cf_echo_bot/`](examples/cf_echo_bot/) pattern: enqueue unary work with `spawn_local`, wait until the reply queue is idle, then persist an **app-level acked resume** (last successfully sent reply id).
 
-```rust
-use onechat_sdk::{Client, SubscribeOptions};
-
-let outcome = client
-    .run_group_session(resume_after_message_id, SubscribeOptions::new(), |client, msg| async move {
-        client.reply_group(msg.group_id, format!("echo: {}", msg.text)).await?;
-        Ok(())
-    })
-    .await?;
-// persist outcome.resume_after_message_id; schedule next alarm
-// on Err(Error::Listen { resume_after_message_id, .. }) persist that resume too
-```
+`ListenSessionOutcome::resume_after_message_id` / `Error::Listen` advance when the **handler returns `Ok`** (stream consumption). That is safe if you `await` all side effects inside the handler. On Workers you must **not** `await` unary RPCs while the stream is open (Fetch deadlock), so the SDK cursor can run ahead of deferred sends — do **not** persist the SDK cursor alone when using `spawn_local`; use an acked cursor (see `cf_echo_bot`).
 
 Live templates:
 
@@ -81,12 +70,12 @@ cargo run --example send_group_message -- "hello"
 | Transport | Hyper + `tonic-web` | Fetch + `tonic-web-wasm-client` |
 | Listen | `subscribe_*` or forever `run_*_bot` | **`run_*_session` once per DO `alarm`** |
 | Max age | ~25m then reconnect in-process | ~14m (DO alarm wall is 15m) |
-| Resume | in-memory across reconnects | persist `ListenSessionOutcome` / `Error::Listen` resume id in DO storage |
+| Resume | in-memory across reconnects | persist **acked** resume (after deferred unary succeeds); SDK outcome is listen cursor only |
 | 24/7 cost | one long-lived process | alarm loop; prefer native for always-on agents |
 
 Do **not** keep a forever Cron / open Fetch stream outside a Durable Object session. Plain outbound `fetch()` does not keep a DO alive — alarms do.
 
-On Workers, **do not `await` a unary RPC (e.g. `reply_group`) inside a listen handler while the stream is still open** — concurrent Fetch to the same origin deadlocks. Use `wasm_bindgen_futures::spawn_local` for sends (and wait for in-flight work before the alarm returns — see `cf_echo_bot`), or send from a separate invocation after the stream ends.
+On Workers, **do not `await` a unary RPC (e.g. `reply_group`) inside a listen handler while the stream is still open** — concurrent Fetch to the same origin deadlocks. Use `wasm_bindgen_futures::spawn_local` (or a sequential queue) for sends, **wait until that work is idle** before the alarm returns, and persist the **acked** resume id — see `cf_echo_bot`.
 
 Template: [`examples/cf_echo_bot/`](examples/cf_echo_bot/). Spike notes: [`examples/cf_spike/`](examples/cf_spike/).
 
