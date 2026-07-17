@@ -4,7 +4,8 @@
 //! persist `resume_after_message_id`, and reschedule. Control routes require
 //! `Authorization: Bearer $CONTROL_TOKEN`.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -28,6 +29,91 @@ struct SessionReport {
     resume_after_message_id: i64,
     messages_echoed: u32,
     ended_reason: String,
+}
+
+struct PendingReply {
+    id: i64,
+    group_id: i64,
+    text: String,
+}
+
+/// Sequential background reply worker (avoids unary+stream Fetch deadlock and
+/// out-of-order resume advances).
+struct ReplyWorker {
+    client: Client,
+    queue: RefCell<VecDeque<PendingReply>>,
+    running: Cell<bool>,
+    acked_resume: Cell<i64>,
+    messages_echoed: Cell<u32>,
+    scheduled: Cell<u32>,
+}
+
+impl ReplyWorker {
+    fn new(client: Client, resume_before: i64) -> Rc<Self> {
+        Rc::new(Self {
+            client,
+            queue: RefCell::new(VecDeque::new()),
+            running: Cell::new(false),
+            acked_resume: Cell::new(resume_before),
+            messages_echoed: Cell::new(0),
+            scheduled: Cell::new(0),
+        })
+    }
+
+    fn enqueue(self: &Rc<Self>, pending: PendingReply) {
+        self.scheduled.set(self.scheduled.get().saturating_add(1));
+        self.queue.borrow_mut().push_back(pending);
+        if !self.running.get() {
+            self.running.set(true);
+            let worker = Rc::clone(self);
+            wasm_bindgen_futures::spawn_local(async move {
+                worker.drain().await;
+            });
+        }
+    }
+
+    async fn drain(self: Rc<Self>) {
+        loop {
+            let next = self.queue.borrow_mut().pop_front();
+            let Some(pending) = next else {
+                self.running.set(false);
+                // A concurrent enqueue may have raced after pop — restart if needed.
+                if !self.queue.borrow().is_empty() && !self.running.replace(true) {
+                    continue;
+                }
+                return;
+            };
+            let reply = format!("echo: {}", pending.text);
+            match self.client.reply_group(pending.group_id, reply).await {
+                Ok(_) => {
+                    console_log!("echo reply ok id={} group={}", pending.id, pending.group_id);
+                    self.messages_echoed
+                        .set(self.messages_echoed.get().saturating_add(1));
+                    if pending.id > self.acked_resume.get() {
+                        self.acked_resume.set(pending.id);
+                    }
+                }
+                Err(err) => {
+                    console_log!("echo reply err id={}: {err}", pending.id);
+                    // Stop the queue so resume stays before the failed message;
+                    // remaining items are dropped and will be redelivered.
+                    self.queue.borrow_mut().clear();
+                    self.running.set(false);
+                    return;
+                }
+            }
+        }
+    }
+
+    async fn wait_idle(&self) {
+        for _ in 0..400 {
+            if !self.running.get() && self.queue.borrow().is_empty() {
+                return;
+            }
+            TimeoutFuture::new(50).await;
+        }
+        console_log!("warning: reply worker still busy after drain wait");
+    }
 }
 
 fn env_string(env: &Env, name: &str) -> Result<String> {
@@ -98,44 +184,19 @@ fn end_reason_label(reason: ListenEndReason) -> &'static str {
     }
 }
 
-async fn drain_inflight_replies(inflight: &Rc<Cell<u32>>) {
-    for _ in 0..200 {
-        if inflight.get() == 0 {
-            return;
-        }
-        TimeoutFuture::new(50).await;
-    }
-    if inflight.get() != 0 {
-        console_log!(
-            "warning: {} echo replies still in flight after drain",
-            inflight.get()
-        );
-    }
-}
-
 async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport> {
     let client = sdk_client(env)?;
     let resume_before = storage.get::<i64>(STORAGE_RESUME).await?.unwrap_or(0);
-    let messages_echoed = Rc::new(Cell::new(0u32));
-    let inflight = Rc::new(Cell::new(0u32));
-    // Resume advances only after a successful reply (not merely on stream receipt).
-    let acked_resume = Rc::new(Cell::new(resume_before));
-    let scheduled = Rc::new(Cell::new(0u32));
-    let echoed = Rc::clone(&messages_echoed);
-    let inflight_h = Rc::clone(&inflight);
-    let acked_h = Rc::clone(&acked_resume);
-    let scheduled_h = Rc::clone(&scheduled);
+    let worker = ReplyWorker::new(client, resume_before);
+    let worker_h = Rc::clone(&worker);
 
-    // Cannot `await` unary while the listen stream is open (Workers Fetch deadlock).
-    let listen_result = client
+    let listen_result = worker
+        .client
         .run_group_session(
             resume_before,
             SubscribeOptions::new(),
-            move |client, msg| {
-                let echoed = Rc::clone(&echoed);
-                let inflight_h = Rc::clone(&inflight_h);
-                let acked_h = Rc::clone(&acked_h);
-                let scheduled_h = Rc::clone(&scheduled_h);
+            move |_client, msg| {
+                let worker_h = Rc::clone(&worker_h);
                 async move {
                     console_log!(
                         "echo inbound id={} group={} from={} text_len={}",
@@ -144,26 +205,10 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
                         msg.sender_user_id,
                         msg.text.len()
                     );
-                    let msg_id = msg.id;
-                    let group_id = msg.group_id;
-                    let reply = format!("echo: {}", msg.text);
-                    scheduled_h.set(scheduled_h.get().saturating_add(1));
-                    inflight_h.set(inflight_h.get().saturating_add(1));
-                    let inflight_done = Rc::clone(&inflight_h);
-                    let echoed_done = Rc::clone(&echoed);
-                    let acked_done = Rc::clone(&acked_h);
-                    wasm_bindgen_futures::spawn_local(async move {
-                        match client.reply_group(group_id, reply).await {
-                            Ok(_) => {
-                                console_log!("echo reply ok id={msg_id} group={group_id}");
-                                echoed_done.set(echoed_done.get().saturating_add(1));
-                                if msg_id > acked_done.get() {
-                                    acked_done.set(msg_id);
-                                }
-                            }
-                            Err(err) => console_log!("echo reply err id={msg_id}: {err}"),
-                        }
-                        inflight_done.set(inflight_done.get().saturating_sub(1));
+                    worker_h.enqueue(PendingReply {
+                        id: msg.id,
+                        group_id: msg.group_id,
+                        text: msg.text,
                     });
                     Ok(())
                 }
@@ -171,7 +216,7 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
         )
         .await;
 
-    drain_inflight_replies(&inflight).await;
+    worker.wait_idle().await;
 
     let (ended_reason, listen_resume) = match listen_result {
         Ok(out) => (
@@ -182,9 +227,8 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
             resume_after_message_id: r,
             source,
         }) => {
-            // Prefer reply-acked resume when we scheduled echoes.
-            let resume = if scheduled.get() > 0 {
-                acked_resume.get()
+            let resume = if worker.scheduled.get() > 0 {
+                worker.acked_resume.get()
             } else {
                 r
             };
@@ -194,8 +238,8 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
             )));
         }
         Err(err) => {
-            let resume = if scheduled.get() > 0 {
-                acked_resume.get()
+            let resume = if worker.scheduled.get() > 0 {
+                worker.acked_resume.get()
             } else {
                 resume_before
             };
@@ -204,8 +248,8 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
         }
     };
 
-    let resume_after_message_id = if scheduled.get() > 0 {
-        acked_resume.get()
+    let resume_after_message_id = if worker.scheduled.get() > 0 {
+        worker.acked_resume.get()
     } else {
         listen_resume
     };
@@ -213,7 +257,7 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
 
     let report = SessionReport {
         resume_after_message_id,
-        messages_echoed: messages_echoed.get(),
+        messages_echoed: worker.messages_echoed.get(),
         ended_reason,
     };
     let status_json = serde_json::to_string(&report)
