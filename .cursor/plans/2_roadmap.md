@@ -37,8 +37,16 @@ Pre-uploaded URL lists + authenticated download; 5×20MB; no video in v1. myEdge
 
 GitHub Actions on merge to `main`: build + `cargo publish` with secret `CARGO_REGISTRY_TOKEN` (idempotent if version exists). Semver bump in the releasing PR.
 
-## M8 — Cloudflare Workers WASM (in progress)
+## M8 — Cloudflare Workers WASM ✅
 
-- Phase 0 spike **GO** (`examples/cf_spike`, `SPIKE_RESULTS.md`)
-- Phase 1: tonic 0.14 + target-gated Fetch transport in `onechat-sdk` (0.2.0); `subscribe_*` still native-only
-- Next: Phase 2 in-task wasm listen, Phase 3 `cf_echo_bot`, Phase 4 docs
+Target-gated Fetch gRPC-Web + Durable Object alarm sessions (not a drop-in Tokio stack).
+
+| Phase | Deliverable |
+|-------|-------------|
+| 0 | `examples/cf_spike` — unary + stream + alarm **GO** (`SPIKE_RESULTS.md`) |
+| 1 | tonic 0.14 + `src/client/{native,wasm}.rs`; vendored `onechat-tonic-web-wasm-client`; CI `wasm32` check |
+| 2 | `run_group_session` / `run_dm_session` (all targets); native forever `run_*_bot`; `Error::Listen` resume |
+| 3 | `examples/cf_echo_bot` — DO alarms using SDK sessions |
+| 4 | Docs: native vs Workers choice in `AGENTS.md` / README / this roadmap |
+
+**Default for 24/7 bots:** native Tokio (`subscribe_*` / `run_*_bot`). **Workers:** one `run_*_session` per DO alarm (≤~14m), persist resume, reschedule. See `AGENTS.md` and `examples/cf_echo_bot/`.

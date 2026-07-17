@@ -23,7 +23,7 @@ let client = Client::from_env()?;
 // Or: Client::try_new(Config { ... })?
 ```
 
-**Status:** M0–M7 shipped (groups, DMs, media URLs, reactions, crates.io). M8 Workers WASM in progress: crate `0.2.0` compiles for `wasm32` with Fetch gRPC-Web; long-lived `subscribe_*` remains native-only until Phase 2. Spike: `examples/cf_spike/`.
+**Status:** M0–M8 shipped. Native Tokio is the default for 24/7 bots. Cloudflare Workers use Fetch gRPC-Web + Durable Object alarm sessions (`run_*_session`); see [Native vs Workers](#native-vs-workers-m8) and `examples/cf_echo_bot/`.
 
 ### Minimal listen → reply
 
@@ -74,7 +74,19 @@ cargo run --example send_group_message -- "hello"
 # needs CHANNEL_ID_TEST
 ```
 
-Workers (Durable Object + SDK sessions): see [`examples/cf_echo_bot/`](examples/cf_echo_bot/).
+## Native vs Workers (M8)
+
+| | Native (default) | Cloudflare Workers |
+|--|------------------|--------------------|
+| Transport | Hyper + `tonic-web` | Fetch + `tonic-web-wasm-client` |
+| Listen | `subscribe_*` or forever `run_*_bot` | **`run_*_session` once per DO `alarm`** |
+| Max age | ~25m then reconnect in-process | ~14m (DO alarm wall is 15m) |
+| Resume | in-memory across reconnects | persist `ListenSessionOutcome` / `Error::Listen` resume id in DO storage |
+| 24/7 cost | one long-lived process | alarm loop; prefer native for always-on agents |
+
+Do **not** keep a forever Cron / open Fetch stream outside a Durable Object session. Plain outbound `fetch()` does not keep a DO alive — alarms do.
+
+Template: [`examples/cf_echo_bot/`](examples/cf_echo_bot/). Spike notes: [`examples/cf_spike/`](examples/cf_spike/).
 
 ## Public API map
 
@@ -150,7 +162,8 @@ while let Some(event) = dms.next().await {
 | `build.rs` | `tonic-build` client codegen into `OUT_DIR` (`src/pb.rs` includes it) |
 | `examples/` | Runnable bot templates |
 | `reference/` (gitignored) | Local-only OpenClaw/Hermes samples — do not commit or push |
-| `.cursor/plans/2_roadmap.md` | Milestones M0–M7 |
+| `.cursor/plans/2_roadmap.md` | Milestones M0–M8 |
+| `examples/cf_echo_bot/` | Workers DO + `run_group_session` template (standalone package) |
 | `.github/workflows/` | CI + crates.io publish |
 
 ## GitHub identity

@@ -9,7 +9,7 @@ Rust library name: `onechat_sdk`
 
 ```toml
 [dependencies]
-onechat-sdk = "0.1"
+onechat-sdk = "0.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
 ```
@@ -62,6 +62,10 @@ cargo run --example echo_bot
 cargo run --example send_group_message -- "hello"   # needs CHANNEL_ID_TEST
 ```
 
+### Cloudflare Workers
+
+For edge bots, use a Durable Object alarm that calls `run_group_session` / `run_dm_session`, persists the resume id, and reschedules. See [`examples/cf_echo_bot/`](examples/cf_echo_bot/) and the [Native vs Workers](AGENTS.md#native-vs-workers-m8) section in `AGENTS.md`. Prefer native Tokio for always-on 24/7 agents.
+
 ## Develop
 
 Requires [Rust](https://rustup.rs/) 1.85+ (pin: 1.97 via `rust-toolchain.toml`) and [`protoc`](https://grpc.io/docs/protoc-installation/).
@@ -70,6 +74,7 @@ Requires [Rust](https://rustup.rs/) 1.85+ (pin: 1.97 via `rust-toolchain.toml`) 
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt
+cargo check --target wasm32-unknown-unknown -p onechat-sdk
 ```
 
 ## Publish
