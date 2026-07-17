@@ -5,12 +5,12 @@
 //!
 //! # Features
 //!
-//! - Groups: `reply_group`, `run_group_bot` (in-task reconnect; all targets), `subscribe_groups` (native)
-//! - DMs: `reply_dm`, `run_dm_bot`, `subscribe_dms` (native), `create_or_get_dm`
+//! - Groups: `reply_group`, `run_group_session` (all targets), `run_group_bot` (native forever), `subscribe_groups` (native)
+//! - DMs: `reply_dm`, `run_dm_session`, `run_dm_bot` (native), `subscribe_dms` (native), `create_or_get_dm`
 //! - Media: `reply_group_with_media`, `download_media_bytes`, `download_media` (native path write)
 //! - Reactions: `react_group_message`, `react_dm_message`
 //! - Mentions: [`format_mention`], chunking via [`chunk_text`]
-//! - `wasm32`: Fetch gRPC-Web + in-task `run_*_bot` (use inside a Durable Object session)
+//! - `wasm32`: Fetch gRPC-Web + bounded `run_*_session` (Durable Object alarm)
 //!
 //! Agent integration guide: `AGENTS.md`. Roadmap: `.cursor/plans/2_roadmap.md`.
 //!
@@ -57,6 +57,7 @@ pub use config::Config;
 pub use dm::DirectEventStream;
 pub use error::{Error, Result};
 pub use group::SendGroupMessageResult;
+pub use listen::{ListenEndReason, ListenSessionOutcome};
 pub use media::{
     MAX_ATTACHMENTS, MAX_FILE_BYTES, MediaKind, MediaUrls, classify_media_path,
     media_urls_from_paths,

@@ -7,6 +7,7 @@ use std::time::Duration;
 use futures_util::future::{Either, select};
 
 /// Sleep for `dur`.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // used by native `run_*_bot` reconnect
 pub async fn sleep(dur: Duration) {
     #[cfg(not(target_arch = "wasm32"))]
     {
