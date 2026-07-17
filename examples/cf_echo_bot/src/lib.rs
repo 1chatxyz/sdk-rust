@@ -98,23 +98,44 @@ fn end_reason_label(reason: ListenEndReason) -> &'static str {
     }
 }
 
+async fn drain_inflight_replies(inflight: &Rc<Cell<u32>>) {
+    for _ in 0..200 {
+        if inflight.get() == 0 {
+            return;
+        }
+        TimeoutFuture::new(50).await;
+    }
+    if inflight.get() != 0 {
+        console_log!(
+            "warning: {} echo replies still in flight after drain",
+            inflight.get()
+        );
+    }
+}
+
 async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport> {
     let client = sdk_client(env)?;
-    let mut resume_after_message_id = storage.get::<i64>(STORAGE_RESUME).await?.unwrap_or(0);
+    let resume_before = storage.get::<i64>(STORAGE_RESUME).await?.unwrap_or(0);
     let messages_echoed = Rc::new(Cell::new(0u32));
     let inflight = Rc::new(Cell::new(0u32));
+    // Resume advances only after a successful reply (not merely on stream receipt).
+    let acked_resume = Rc::new(Cell::new(resume_before));
+    let scheduled = Rc::new(Cell::new(0u32));
     let echoed = Rc::clone(&messages_echoed);
     let inflight_h = Rc::clone(&inflight);
+    let acked_h = Rc::clone(&acked_resume);
+    let scheduled_h = Rc::clone(&scheduled);
 
     // Cannot `await` unary while the listen stream is open (Workers Fetch deadlock).
-    // Spawn replies and wait for in-flight work before the alarm returns.
-    let outcome = match client
+    let listen_result = client
         .run_group_session(
-            resume_after_message_id,
+            resume_before,
             SubscribeOptions::new(),
             move |client, msg| {
                 let echoed = Rc::clone(&echoed);
                 let inflight_h = Rc::clone(&inflight_h);
+                let acked_h = Rc::clone(&acked_h);
+                let scheduled_h = Rc::clone(&scheduled_h);
                 async move {
                     console_log!(
                         "echo inbound id={} group={} from={} text_len={}",
@@ -123,18 +144,24 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
                         msg.sender_user_id,
                         msg.text.len()
                     );
+                    let msg_id = msg.id;
                     let group_id = msg.group_id;
                     let reply = format!("echo: {}", msg.text);
+                    scheduled_h.set(scheduled_h.get().saturating_add(1));
                     inflight_h.set(inflight_h.get().saturating_add(1));
                     let inflight_done = Rc::clone(&inflight_h);
                     let echoed_done = Rc::clone(&echoed);
+                    let acked_done = Rc::clone(&acked_h);
                     wasm_bindgen_futures::spawn_local(async move {
                         match client.reply_group(group_id, reply).await {
                             Ok(_) => {
-                                console_log!("echo reply ok group={group_id}");
+                                console_log!("echo reply ok id={msg_id} group={group_id}");
                                 echoed_done.set(echoed_done.get().saturating_add(1));
+                                if msg_id > acked_done.get() {
+                                    acked_done.set(msg_id);
+                                }
                             }
-                            Err(err) => console_log!("echo reply err: {err}"),
+                            Err(err) => console_log!("echo reply err id={msg_id}: {err}"),
                         }
                         inflight_done.set(inflight_done.get().saturating_sub(1));
                     });
@@ -142,41 +169,52 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
                 }
             },
         )
-        .await
-    {
-        Ok(out) => out,
+        .await;
+
+    drain_inflight_replies(&inflight).await;
+
+    let (ended_reason, listen_resume) = match listen_result {
+        Ok(out) => (
+            end_reason_label(out.reason).to_string(),
+            out.resume_after_message_id,
+        ),
         Err(SdkError::Listen {
             resume_after_message_id: r,
             source,
         }) => {
-            resume_after_message_id = r;
-            storage.put(STORAGE_RESUME, resume_after_message_id).await?;
-            return Err(Error::RustError(format!("listen: {source} (resume={r})")));
+            // Prefer reply-acked resume when we scheduled echoes.
+            let resume = if scheduled.get() > 0 {
+                acked_resume.get()
+            } else {
+                r
+            };
+            storage.put(STORAGE_RESUME, resume).await?;
+            return Err(Error::RustError(format!(
+                "listen: {source} (resume={resume})"
+            )));
         }
-        Err(err) => return Err(Error::RustError(format!("listen: {err}"))),
+        Err(err) => {
+            let resume = if scheduled.get() > 0 {
+                acked_resume.get()
+            } else {
+                resume_before
+            };
+            storage.put(STORAGE_RESUME, resume).await?;
+            return Err(Error::RustError(format!("listen: {err}")));
+        }
     };
 
-    // Drain background replies so the DO invocation does not finish early.
-    for _ in 0..200 {
-        if inflight.get() == 0 {
-            break;
-        }
-        TimeoutFuture::new(50).await;
-    }
-    if inflight.get() != 0 {
-        console_log!(
-            "warning: {} echo replies still in flight at session end",
-            inflight.get()
-        );
-    }
-
-    resume_after_message_id = outcome.resume_after_message_id;
+    let resume_after_message_id = if scheduled.get() > 0 {
+        acked_resume.get()
+    } else {
+        listen_resume
+    };
     storage.put(STORAGE_RESUME, resume_after_message_id).await?;
 
     let report = SessionReport {
         resume_after_message_id,
         messages_echoed: messages_echoed.get(),
-        ended_reason: end_reason_label(outcome.reason).into(),
+        ended_reason,
     };
     let status_json = serde_json::to_string(&report)
         .map_err(|e| Error::RustError(format!("serialize status: {e}")))?;
