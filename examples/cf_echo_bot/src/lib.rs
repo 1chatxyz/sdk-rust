@@ -66,7 +66,9 @@ fn sdk_client(env: &Env) -> Result<Client> {
         api_url: env_string(env, "API_1CHAT_URL")?,
         tenant_id: env_string(env, "TENANT_ID")?,
         bot_token: env_string(env, "BOT_TOKEN")?,
-        user_id: env_string(env, "ONECHAT_USER_ID").ok().filter(|s| !s.is_empty()),
+        user_id: env_string(env, "ONECHAT_USER_ID")
+            .ok()
+            .filter(|s| !s.is_empty()),
         username: env_string(env, "ONECHAT_USERNAME")
             .ok()
             .filter(|s| !s.is_empty()),
