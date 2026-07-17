@@ -13,19 +13,11 @@ use crate::client::Client;
 use crate::error::{Error, Result};
 use crate::pb::genjutsu::myconversation::v1::StreamChatGroupsRequest;
 use crate::pb::genjutsu::myconversation::v1::chat_group_stream_event::Item as StreamItem;
+use crate::reconnect::compute_reconnect_delay;
 use crate::types::{IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions};
 
 const DEFAULT_IDLE: Duration = Duration::from_secs(90);
 const DEFAULT_MAX_AGE: Duration = Duration::from_secs(25 * 60);
-const MIN_RECONNECT: Duration = Duration::from_secs(2);
-const MAX_RECONNECT: Duration = Duration::from_secs(60);
-
-/// Compute exponential reconnect delay (2s … 60s).
-pub fn compute_reconnect_delay(attempt: u32) -> Duration {
-    let exp = attempt.min(16);
-    let ms = MIN_RECONNECT.as_millis() * (1u128 << exp);
-    Duration::from_millis(ms.min(MAX_RECONNECT.as_millis()) as u64)
-}
 
 /// Async stream of [`IncomingEvent`] with automatic reconnect.
 pub struct GroupEventStream {

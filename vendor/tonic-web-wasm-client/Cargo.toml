@@ -1,15 +1,18 @@
 [package]
-name = "tonic-web-wasm-client"
-version = "0.9.1"
+name = "onechat-tonic-web-wasm-client"
+version = "0.1.0"
 authors = ["Devashish Dixit <devashishdxt@gmail.com>"]
-license = "MIT/Apache-2.0"
-description = "grpc-web implementation for use by tonic clients in browsers via webassembly"
-homepage = "https://github.com/devashishdxt/tonic-web-wasm-client"
-repository = "https://github.com/devashishdxt/tonic-web-wasm-client"
-readme = "README.md"
-categories = ["web-programming", "network-programming", "asynchronous"]
-keywords = ["grpc", "grpc-web", "tonic", "wasm"]
 edition = "2024"
+description = "tonic-web-wasm-client fork with wasm-streams 0.6 (Cloudflare Workers)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/1chatxyz/sdk-rust"
+readme = "README.md"
+keywords = ["grpc", "grpc-web", "tonic", "wasm"]
+categories = ["web-programming", "network-programming", "asynchronous"]
+
+[lib]
+name = "tonic_web_wasm_client"
+path = "src/lib.rs"
 
 [dependencies]
 base64 = "0.22"

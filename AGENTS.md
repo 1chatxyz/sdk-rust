@@ -23,7 +23,7 @@ let client = Client::from_env()?;
 // Or: Client::try_new(Config { ... })?
 ```
 
-**Status:** M0–M5 shipped (groups, DMs, media URLs, reactions). Use this file + `README.md` + `examples/` to integrate without reading the roadmap.
+**Status:** M0–M7 shipped (groups, DMs, media URLs, reactions, crates.io). M8 Workers WASM in progress: crate `0.2.0` compiles for `wasm32` with Fetch gRPC-Web; long-lived `subscribe_*` remains native-only until Phase 2. Spike: `examples/cf_spike/`.
 
 ### Minimal listen → reply
 
@@ -67,7 +67,7 @@ cargo run --example send_group_message -- "hello"
 | Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `set_typing` |
 | Group stream | `subscribe_groups`, `run_group_bot`, `SubscribeOptions`, `IncomingEvent` |
 | DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `subscribe_dms` |
-| Media | `MediaUrls`, `media_urls_from_paths`, `download_media` (max 5×20MB; **no video**) |
+| Media | `MediaUrls`, `media_urls_from_paths`, `download_media_bytes`, `download_media` (native path; max 5×20MB; **no video**) |
 | Reactions | `react_group_message`, `react_dm_message` |
 | Mentions | `format_mention` → `[[@Name:id]]`, `extract_mentioned_user_ids` |
 | Chunking | `chunk_text` / `TEXT_CHUNK_LIMIT` (4000) — applied inside send helpers |

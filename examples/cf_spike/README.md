@@ -64,5 +64,5 @@ curl -s -X POST -H "Authorization: Bearer $CONTROL_TOKEN" http://127.0.0.1:8787/
 
 See [SPIKE_RESULTS.md](SPIKE_RESULTS.md). **Verdict: GO** (2026-07-17).
 
-Vendored note: `vendor/tonic-web-wasm-client` is upstream 0.9.1 with only
+Vendored note: `../../vendor/tonic-web-wasm-client` is upstream 0.9.1 with only
 `wasm-streams` bumped to `0.6` for compatibility with `worker` 0.8.x.

@@ -1,8 +1,9 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/");
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)
+        .build_transport(false)
         .compile_protos(
             &["proto/myconversation/api/myconversation.proto"],
             &["proto/"],

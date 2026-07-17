@@ -63,6 +63,10 @@ impl Config {
     }
 
     /// Load from `API_1CHAT_URL`, `TENANT_ID`, and `BOT_TOKEN`.
+    ///
+    /// Not available on `wasm32` (use [`Config`] + [`crate::Client::try_new`] with
+    /// Wrangler secrets / bindings).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_env() -> Result<Self> {
         let config = Self {
             api_url: require_env("API_1CHAT_URL")?,
@@ -77,6 +81,7 @@ impl Config {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn require_env(key: &str) -> Result<String> {
     std::env::var(key).map_err(|_| Error::Config(format!("missing environment variable {key}")))
 }
