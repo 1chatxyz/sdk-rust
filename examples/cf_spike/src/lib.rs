@@ -43,6 +43,7 @@ use worker::{
 const STORAGE_RESUME: &str = "resume_after_message_id";
 const STORAGE_LAST_STATUS: &str = "last_status";
 const STORAGE_RUNNING: &str = "session_running";
+const STORAGE_RUNNING_SINCE_MS: &str = "session_running_since_ms";
 const DEFAULT_SESSION_SECS: u64 = 120;
 const IDLE_SECS: u64 = 90;
 
@@ -84,17 +85,28 @@ fn parse_u64_env(env: &Env, name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
-fn require_control(req: &Request, env: &Env) -> Result<()> {
-    let expected = env_string(env, "CONTROL_TOKEN")?;
-    let header = req.headers().get("Authorization")?.unwrap_or_default();
+/// Returns true when the request presents a valid control bearer token.
+/// Missing/misconfigured secrets intentionally look the same as a bad token
+/// so unauthenticated callers cannot probe config.
+fn control_authorized(req: &Request, env: &Env) -> bool {
+    let Ok(expected) = env_string(env, "CONTROL_TOKEN") else {
+        return false;
+    };
+    if expected.is_empty() {
+        return false;
+    }
+    let Ok(Some(header)) = req.headers().get("Authorization") else {
+        return false;
+    };
     let token = header
         .strip_prefix("Bearer ")
         .or_else(|| header.strip_prefix("bearer "))
         .unwrap_or(header.as_str());
-    if token != expected {
-        return Err(Error::RustError("unauthorized".into()));
-    }
-    Ok(())
+    token == expected
+}
+
+fn unauthorized() -> Result<Response> {
+    Response::error("unauthorized", 401)
 }
 
 fn grpc_client(
@@ -272,7 +284,22 @@ impl BotSession {
     }
 
     async fn set_running(&self, running: bool) -> Result<()> {
-        self.state.storage().put(STORAGE_RUNNING, running).await
+        let storage = self.state.storage();
+        storage.put(STORAGE_RUNNING, running).await?;
+        if running {
+            storage
+                .put(STORAGE_RUNNING_SINCE_MS, js_sys::Date::now())
+                .await?;
+        } else {
+            let _ = storage.delete(STORAGE_RUNNING_SINCE_MS).await;
+        }
+        Ok(())
+    }
+
+    fn session_cap_ms(&self) -> f64 {
+        (parse_u64_env(&self.env, "SESSION_SECS", DEFAULT_SESSION_SECS).min(14 * 60) as f64)
+            * 1000.0
+            + 30_000.0
     }
 }
 
@@ -283,9 +310,20 @@ impl DurableObject for BotSession {
 
     async fn fetch(&self, req: Request) -> Result<Response> {
         let path = req.path();
+        let protected = matches!(
+            (req.method(), path.as_str()),
+            (Method::Get, "/status")
+                | (Method::Post, "/ensure")
+                | (Method::Post, "/stop")
+                | (Method::Post, "/unary")
+                | (Method::Post, "/session-once")
+        );
+        if protected && !control_authorized(&req, &self.env) {
+            return unauthorized();
+        }
+
         match (req.method(), path.as_str()) {
             (Method::Get, "/status") => {
-                require_control(&req, &self.env)?;
                 let resume = self
                     .state
                     .storage()
@@ -307,7 +345,6 @@ impl DurableObject for BotSession {
                 }))
             }
             (Method::Post, "/ensure") => {
-                require_control(&req, &self.env)?;
                 // Clear a stale running flag after isolate eviction mid-session.
                 self.set_running(false).await?;
                 self.state
@@ -317,13 +354,11 @@ impl DurableObject for BotSession {
                 Response::ok("alarm scheduled")
             }
             (Method::Post, "/stop") => {
-                require_control(&req, &self.env)?;
                 self.state.storage().delete_alarm().await?;
                 self.set_running(false).await?;
                 Response::ok("alarm cleared")
             }
             (Method::Post, "/unary") => {
-                require_control(&req, &self.env)?;
                 let group_id: i64 = env_string(&self.env, "CHANNEL_ID_TEST")?
                     .parse()
                     .map_err(|e| Error::RustError(format!("CHANNEL_ID_TEST: {e}")))?;
@@ -336,7 +371,6 @@ impl DurableObject for BotSession {
                 Response::ok(format!("sent message_id={id}"))
             }
             (Method::Post, "/session-once") => {
-                require_control(&req, &self.env)?;
                 if self.is_running().await? {
                     return Response::error("session already running", 409);
                 }
@@ -360,8 +394,28 @@ impl DurableObject for BotSession {
 
     async fn alarm(&self) -> Result<Response> {
         if self.is_running().await? {
-            console_log!("alarm skipped: session already running");
-            return Response::ok("skipped");
+            let since = self
+                .state
+                .storage()
+                .get::<f64>(STORAGE_RUNNING_SINCE_MS)
+                .await?
+                .unwrap_or(0.0);
+            let age_ms = js_sys::Date::now() - since;
+            if age_ms > self.session_cap_ms() {
+                console_log!("alarm cleared stale running flag (age_ms={age_ms})");
+                self.set_running(false).await?;
+                self.state
+                    .storage()
+                    .set_alarm(Duration::from_secs(0))
+                    .await?;
+                return Response::ok("stale_running_cleared");
+            }
+            console_log!("alarm deferred: session still running (age_ms={age_ms})");
+            self.state
+                .storage()
+                .set_alarm(Duration::from_secs(30))
+                .await?;
+            return Response::ok("deferred");
         }
         self.set_running(true).await?;
         let result = run_stream_session(&self.env, &self.state.storage()).await;
