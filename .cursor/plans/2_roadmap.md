@@ -33,6 +33,10 @@ Pre-uploaded URL lists + authenticated download; 5×20MB; no video in v1. myEdge
 
 `AGENTS.md` + README + examples + rustdoc so another agent can integrate from the repo link alone.
 
-## M7 — crates.io publish pipeline
+## M7 — crates.io publish pipeline ✅
 
 GitHub Actions on merge to `main`: build + `cargo publish` with secret `CARGO_REGISTRY_TOKEN` (idempotent if version exists). Semver bump in the releasing PR.
+
+## M8 — Cloudflare Workers WASM (in progress)
+
+Phase 0 spike **GO** (`examples/cf_spike`, see `SPIKE_RESULTS.md`): unary + `StreamChatGroups` over Fetch, alarm-driven DO sessions, ~282 KiB gzip. Next: target-gated transport in `onechat-sdk`, then `cf_echo_bot` + docs.
