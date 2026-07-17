@@ -40,7 +40,7 @@ while let Some(event) = events.next().await {
 }
 ```
 
-Or use the convenience loop:
+Or use the forever convenience loop (native only):
 
 ```rust
 client
@@ -49,6 +49,21 @@ client
         Ok(())
     })
     .await?;
+```
+
+On Cloudflare Workers, run **one** bounded session per Durable Object alarm and persist resume:
+
+```rust
+use onechat_sdk::{Client, SubscribeOptions};
+
+let outcome = client
+    .run_group_session(resume_after_message_id, SubscribeOptions::new(), |client, msg| async move {
+        client.reply_group(msg.group_id, format!("echo: {}", msg.text)).await?;
+        Ok(())
+    })
+    .await?;
+// persist outcome.resume_after_message_id; schedule next alarm
+// on Err(Error::Listen { resume_after_message_id, .. }) persist that resume too
 ```
 
 Live templates:
@@ -65,8 +80,8 @@ cargo run --example send_group_message -- "hello"
 |------|-----------------|
 | Config | `Config`, `Client::from_env`, `Client::try_new` |
 | Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `set_typing` |
-| Group stream | `subscribe_groups`, `run_group_bot`, `SubscribeOptions`, `IncomingEvent` |
-| DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `subscribe_dms` |
+| Group stream | `run_group_session` (all targets), `run_group_bot` (native forever), `subscribe_groups` (native), `ListenSessionOutcome`, `SubscribeOptions`, `IncomingEvent` |
+| DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `run_dm_session`, `run_dm_bot` (native), `subscribe_dms` (native) |
 | Media | `MediaUrls`, `media_urls_from_paths`, `download_media_bytes`, `download_media` (native path; max 5×20MB; **no video**) |
 | Reactions | `react_group_message`, `react_dm_message` |
 | Mentions | `format_mention` → `[[@Name:id]]`, `extract_mentioned_user_ids` |
@@ -122,7 +137,7 @@ while let Some(event) = dms.next().await {
 
 ### Stream reconnect (built-in)
 
-`subscribe_groups` / `subscribe_dms` reconnect on disconnect, idle (~90s; pings reset idle), and max age (~25m). Resume uses the last message id. Backoff is 2s → 60s. Pings never surface as `IncomingEvent`.
+`run_*_session` ends on disconnect, idle (~90s; pings reset idle), or max age (~25m native; ~14m on `wasm32`). Native `run_*_bot` and `subscribe_*` reconnect with backoff 2s → 60s. Resume uses the last message id. Pings never surface as `IncomingEvent`. On Workers, call `run_*_session` once per Durable Object alarm, persist `resume_after_message_id`, and reschedule — do not keep a forever Cron open.
 
 ## Repository layout
 

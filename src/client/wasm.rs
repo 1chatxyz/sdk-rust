@@ -30,7 +30,6 @@ impl fmt::Debug for UnaryHandle {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)] // Phase 2: in-task subscribe uses stream handle
 pub(crate) struct StreamHandle {
     pub(crate) base_uri: Uri,
     pub(crate) transport: WasmGrpcClient,

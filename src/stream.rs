@@ -11,10 +11,11 @@ use tracing::{debug, warn};
 
 use crate::client::Client;
 use crate::error::{Error, Result};
+use crate::listen::map_group_message;
 use crate::pb::genjutsu::myconversation::v1::StreamChatGroupsRequest;
 use crate::pb::genjutsu::myconversation::v1::chat_group_stream_event::Item as StreamItem;
 use crate::reconnect::compute_reconnect_delay;
-use crate::types::{IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions};
+use crate::types::{IncomingEvent, IncomingTyping, SubscribeOptions};
 
 const DEFAULT_IDLE: Duration = Duration::from_secs(90);
 const DEFAULT_MAX_AGE: Duration = Duration::from_secs(25 * 60);
@@ -55,27 +56,6 @@ impl Client {
             rx,
             join: Some(join),
         })
-    }
-
-    /// Convenience loop: invoke `handler` for each group message until the stream ends.
-    pub async fn run_group_bot<F, Fut>(&self, mut handler: F) -> Result<()>
-    where
-        F: FnMut(Client, IncomingMessage) -> Fut,
-        Fut: std::future::Future<Output = Result<()>>,
-    {
-        use futures_util::StreamExt;
-        let mut events = self.subscribe_groups(SubscribeOptions::new()).await?;
-        while let Some(item) = events.next().await {
-            match item? {
-                IncomingEvent::GroupMessage(msg) => {
-                    handler(self.clone(), msg).await?;
-                }
-                IncomingEvent::Typing(_)
-                | IncomingEvent::DirectMessage(_)
-                | IncomingEvent::DirectTyping { .. } => {}
-            }
-        }
-        Ok(())
     }
 }
 
@@ -188,7 +168,7 @@ async fn run_one_stream_session(
                         if msg.id > *resume_after_message_id {
                             *resume_after_message_id = msg.id;
                         }
-                        if let Some(incoming) = map_message(msg, client, options) {
+                        if let Some(incoming) = map_group_message(msg, client, options) {
                             if tx
                                 .send(Ok(IncomingEvent::GroupMessage(incoming)))
                                 .await
@@ -216,55 +196,6 @@ async fn run_one_stream_session(
             }
         }
     }
-}
-
-fn map_message(
-    msg: crate::pb::genjutsu::myconversation::v1::ChatGroupMessageInfo,
-    client: &Client,
-    options: &SubscribeOptions,
-) -> Option<IncomingMessage> {
-    if let Some(allow) = &options.allowlist {
-        if !allow.contains(&msg.group_id) {
-            return None;
-        }
-    }
-
-    if options.ignore_self {
-        if let Some(self_id) = client.config().user_id.as_deref() {
-            if let Ok(self_id) = self_id.parse::<i64>() {
-                if self_id == msg.sender_user_id {
-                    return None;
-                }
-            }
-        }
-    }
-
-    if options.require_mention {
-        let cfg = client.config();
-        let by_id = cfg
-            .user_id
-            .as_deref()
-            .and_then(|s| s.parse::<i64>().ok())
-            .is_some_and(|id| msg.mentioned_user_ids.contains(&id));
-        let by_name = cfg
-            .username
-            .as_deref()
-            .is_some_and(|u| !u.is_empty() && msg.content.contains(u));
-        if !by_id && !by_name {
-            return None;
-        }
-    }
-
-    Some(IncomingMessage {
-        id: msg.id,
-        group_id: msg.group_id,
-        sender_user_id: msg.sender_user_id,
-        sender_username: msg.sender_username,
-        text: msg.content,
-        mentioned_user_ids: msg.mentioned_user_ids,
-        images: msg.images,
-        files: msg.files,
-    })
 }
 
 #[cfg(test)]
