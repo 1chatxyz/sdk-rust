@@ -1,0 +1,9 @@
+# Local Wrangler secrets — copy to .dev.vars (gitignored). Never commit real values.
+API_1CHAT_URL=https://gateway.example.com
+TENANT_ID=
+BOT_TOKEN=
+# Required — bot user id so ignore_self drops our own echo replies
+ONECHAT_USER_ID=
+# Optional mention matching
+ONECHAT_USERNAME=
+CONTROL_TOKEN=replace-me

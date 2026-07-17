@@ -9,7 +9,14 @@ repository = "https://github.com/1chatxyz/sdk-rust"
 readme = "README.md"
 keywords = ["chat", "messaging", "sdk", "grpc", "grpc-web"]
 categories = ["api-bindings", "asynchronous"]
-exclude = [".cursor/", "reference/", ".env", ".env.local", "examples/cf_spike/"]
+exclude = [
+    ".cursor/",
+    "reference/",
+    ".env",
+    ".env.local",
+    "examples/cf_spike/",
+    "examples/cf_echo_bot/",
+]
 
 [lib]
 name = "onechat_sdk"

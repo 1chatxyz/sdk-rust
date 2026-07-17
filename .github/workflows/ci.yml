@@ -44,3 +44,6 @@ jobs:
 
       - name: Check wasm32
         run: cargo check --target wasm32-unknown-unknown -p onechat-sdk
+
+      - name: Check cf_echo_bot wasm32
+        run: cargo check --target wasm32-unknown-unknown --manifest-path examples/cf_echo_bot/Cargo.toml
