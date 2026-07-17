@@ -14,6 +14,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use futures_util::future::{Either, select};
 use tracing::{debug, warn};
 use web_time::Instant;
@@ -798,11 +799,17 @@ where
                     Err(err) => Err(fatal(*resume_after_message_id, err)),
                 };
             }
-            Ok(Either::Left((result, _))) => {
+            Ok(Either::Left((result, next))) => {
+                // Handler won the race — still take a stream event that was already ready.
+                let concurrent_end =
+                    drain_ready_group_event(next, client, options, pending, last_event);
                 return match result {
                     Ok(()) => {
                         bump_resume(resume_after_message_id, message_id);
-                        Ok(())
+                        match concurrent_end {
+                            Some(reason) => Err(done(*resume_after_message_id, reason)),
+                            None => Ok(()),
+                        }
                     }
                     Err(err) => Err(fatal(*resume_after_message_id, err)),
                 };
@@ -829,22 +836,97 @@ where
                 }
                 Ok(Some(event)) => {
                     *last_event = Instant::now();
-                    match event.item {
-                        Some(StreamItem::Ping(_)) => {}
-                        Some(StreamItem::Message(msg)) => {
-                            if let Some(incoming) = map_group_message(msg.clone(), client, options)
-                            {
-                                pending.push_back(PendingGroup::Message(incoming));
-                            } else {
-                                // Keep stream order: do not bump past lower pending ids.
-                                pending.push_back(PendingGroup::Skipped(msg.id));
-                            }
-                        }
-                        _ => {}
-                    }
+                    enqueue_group_stream_event(event, client, options, pending);
                 }
             },
         }
+    }
+}
+
+/// If `next` is already ready, enqueue it (or signal stream end/error).
+fn drain_ready_group_event<F>(
+    next: F,
+    client: &Client,
+    options: &SubscribeOptions,
+    pending: &mut VecDeque<PendingGroup>,
+    last_event: &mut Instant,
+) -> Option<ListenEndReason>
+where
+    F: Future<Output = std::result::Result<Option<ChatGroupStreamEvent>, tonic::Status>> + Unpin,
+{
+    match next.now_or_never() {
+        Some(Ok(None)) => Some(ListenEndReason::StreamEnded),
+        Some(Err(status)) => {
+            warn!(%status, "stream error ready with handler completion");
+            Some(ListenEndReason::StreamError)
+        }
+        Some(Ok(Some(event))) => {
+            *last_event = Instant::now();
+            enqueue_group_stream_event(event, client, options, pending);
+            None
+        }
+        None => None,
+    }
+}
+
+fn enqueue_group_stream_event(
+    event: ChatGroupStreamEvent,
+    client: &Client,
+    options: &SubscribeOptions,
+    pending: &mut VecDeque<PendingGroup>,
+) {
+    match event.item {
+        Some(StreamItem::Ping(_)) => {}
+        Some(StreamItem::Message(msg)) => {
+            if let Some(incoming) = map_group_message(msg.clone(), client, options) {
+                pending.push_back(PendingGroup::Message(incoming));
+            } else {
+                pending.push_back(PendingGroup::Skipped(msg.id));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn drain_ready_dm_event<F>(
+    next: F,
+    pending: &mut VecDeque<IncomingDirectMessage>,
+    last_event: &mut Instant,
+) -> Option<ListenEndReason>
+where
+    F: Future<Output = std::result::Result<Option<DirectMessageStreamEvent>, tonic::Status>>
+        + Unpin,
+{
+    match next.now_or_never() {
+        Some(Ok(None)) => Some(ListenEndReason::StreamEnded),
+        Some(Err(_)) => Some(ListenEndReason::StreamError),
+        Some(Ok(Some(event))) => {
+            *last_event = Instant::now();
+            enqueue_dm_stream_event(event, pending);
+            None
+        }
+        None => None,
+    }
+}
+
+fn enqueue_dm_stream_event(
+    event: DirectMessageStreamEvent,
+    pending: &mut VecDeque<IncomingDirectMessage>,
+) {
+    match event.item {
+        Some(DmStreamItem::Ping(_)) => {}
+        Some(DmStreamItem::Message(msg)) => {
+            pending.push_back(IncomingDirectMessage {
+                id: msg.id,
+                thread_id: msg.thread_id,
+                sender_user_id: msg.sender_user_id,
+                sender_username: msg.sender_username,
+                text: msg.content,
+                images: msg.images,
+                files: msg.files,
+            });
+        }
+        _ => {}
     }
 }
 
@@ -889,11 +971,15 @@ where
                     Err(err) => Err(fatal(*resume_after_message_id, err)),
                 };
             }
-            Ok(Either::Left((result, _))) => {
+            Ok(Either::Left((result, next))) => {
+                let concurrent_end = drain_ready_dm_event(next, pending, last_event);
                 return match result {
                     Ok(()) => {
                         bump_resume(resume_after_message_id, message_id);
-                        Ok(())
+                        match concurrent_end {
+                            Some(reason) => Err(done(*resume_after_message_id, reason)),
+                            None => Ok(()),
+                        }
                     }
                     Err(err) => Err(fatal(*resume_after_message_id, err)),
                 };
@@ -919,21 +1005,7 @@ where
                 }
                 Ok(Some(event)) => {
                     *last_event = Instant::now();
-                    match event.item {
-                        Some(DmStreamItem::Ping(_)) => {}
-                        Some(DmStreamItem::Message(msg)) => {
-                            pending.push_back(IncomingDirectMessage {
-                                id: msg.id,
-                                thread_id: msg.thread_id,
-                                sender_user_id: msg.sender_user_id,
-                                sender_username: msg.sender_username,
-                                text: msg.content,
-                                images: msg.images,
-                                files: msg.files,
-                            });
-                        }
-                        _ => {}
-                    }
+                    enqueue_dm_stream_event(event, pending);
                 }
             },
         }
