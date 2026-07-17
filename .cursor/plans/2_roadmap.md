@@ -39,4 +39,6 @@ GitHub Actions on merge to `main`: build + `cargo publish` with secret `CARGO_RE
 
 ## M8 — Cloudflare Workers WASM (in progress)
 
-Phase 0 spike **GO** (`examples/cf_spike`, see `SPIKE_RESULTS.md`): unary + `StreamChatGroups` over Fetch, alarm-driven DO sessions, ~282 KiB gzip. Next: target-gated transport in `onechat-sdk`, then `cf_echo_bot` + docs.
+- Phase 0 spike **GO** (`examples/cf_spike`, `SPIKE_RESULTS.md`)
+- Phase 1: tonic 0.14 + target-gated Fetch transport in `onechat-sdk` (0.2.0); `subscribe_*` still native-only
+- Next: Phase 2 in-task wasm listen, Phase 3 `cf_echo_bot`, Phase 4 docs

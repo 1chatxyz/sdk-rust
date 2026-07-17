@@ -5,11 +5,12 @@
 //!
 //! # Features
 //!
-//! - Groups: `reply_group`, `subscribe_groups` / `run_group_bot` (auto-reconnect)
-//! - DMs: `reply_dm`, `subscribe_dms`, `create_or_get_dm`
-//! - Media: `reply_group_with_media`, `download_media` (pre-uploaded URLs; no video)
+//! - Groups: `reply_group`, `subscribe_groups` / `run_group_bot` (auto-reconnect; native)
+//! - DMs: `reply_dm`, `subscribe_dms` (native), `create_or_get_dm`
+//! - Media: `reply_group_with_media`, `download_media_bytes`, `download_media` (native path write)
 //! - Reactions: `react_group_message`, `react_dm_message`
 //! - Mentions: [`format_mention`], chunking via [`chunk_text`]
+//! - `wasm32`: unary/send RPCs via Fetch; long-lived `subscribe_*` lands in a follow-up
 //!
 //! Agent integration guide: `AGENTS.md`. Roadmap: `.cursor/plans/2_roadmap.md`.
 //!
@@ -41,6 +42,8 @@ mod media;
 mod mention;
 mod pb;
 mod reaction;
+mod reconnect;
+#[cfg(not(target_arch = "wasm32"))]
 mod stream;
 mod transport;
 mod types;
@@ -48,6 +51,7 @@ mod types;
 pub use chunking::{TEXT_CHUNK_LIMIT, chunk_text};
 pub use client::Client;
 pub use config::Config;
+#[cfg(not(target_arch = "wasm32"))]
 pub use dm::DirectEventStream;
 pub use error::{Error, Result};
 pub use group::SendGroupMessageResult;
@@ -57,7 +61,9 @@ pub use media::{
 };
 pub use mention::{extract_mentioned_user_ids, format_mention};
 pub use reaction::Reaction;
-pub use stream::{GroupEventStream, compute_reconnect_delay};
+pub use reconnect::compute_reconnect_delay;
+#[cfg(not(target_arch = "wasm32"))]
+pub use stream::GroupEventStream;
 pub use types::{
     IncomingDirectMessage, IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions,
 };

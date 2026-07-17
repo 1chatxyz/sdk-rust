@@ -8,63 +8,21 @@ use std::fmt;
 use std::sync::Arc;
 
 use http::Uri;
-use hyper_util::client::legacy::Client as HyperClient;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioExecutor;
-use tonic::body::Body;
-use tonic::service::interceptor::InterceptedService;
-use tonic_web::{GrpcWebCall, GrpcWebClientLayer};
-use tower::ServiceBuilder;
 
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::pb::genjutsu::myconversation::v1::my_conversation_client::MyConversationClient;
 use crate::transport::{AuthInterceptor, normalize_api_url};
 
-/// Authenticated gRPC-Web service stack.
-pub(crate) type AuthedGrpcWeb =
-    InterceptedService<tonic_web::GrpcWebClientService<HttpClient>, AuthInterceptor>;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 
-/// Hyper client body type expected by `tonic_web::GrpcWebClientLayer`.
-pub(crate) type HttpClient =
-    HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, GrpcWebCall<Body>>;
-
-/// Opaque gRPC-Web handle used for unary RPCs.
-#[derive(Clone)]
-pub(crate) struct UnaryHandle {
-    pub(crate) base_uri: Uri,
-    pub(crate) http: HttpClient,
-    pub(crate) auth: AuthInterceptor,
-}
-
-impl fmt::Debug for UnaryHandle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("UnaryHandle")
-            .field("base_uri", &self.base_uri)
-            .field("auth", &self.auth)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Opaque gRPC-Web handle used for server streams.
-///
-/// Kept separate from [`UnaryHandle`] so long-lived streams do not share a
-/// connection with unary traffic (parity with the TypeScript reference).
-#[derive(Clone)]
-pub(crate) struct StreamHandle {
-    pub(crate) base_uri: Uri,
-    pub(crate) http: HttpClient,
-    pub(crate) auth: AuthInterceptor,
-}
-
-impl fmt::Debug for StreamHandle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StreamHandle")
-            .field("base_uri", &self.base_uri)
-            .field("auth", &self.auth)
-            .finish_non_exhaustive()
-    }
-}
+#[cfg(not(target_arch = "wasm32"))]
+use native::{AuthedGrpcWeb, StreamHandle, UnaryHandle, bind_rpc, build_http_client};
+#[cfg(target_arch = "wasm32")]
+use wasm::{AuthedGrpcWeb, StreamHandle, UnaryHandle, bind_rpc, build_transport};
 
 /// 1Chat SDK client.
 ///
@@ -100,26 +58,54 @@ impl Client {
             .map_err(|e| Error::Transport(format!("invalid api_url after normalize: {e}")))?;
 
         let auth = AuthInterceptor::new(&config.tenant_id, &config.bot_token);
-        let unary_http = build_http_client()?;
-        let stream_http = build_http_client()?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let (unary, stream) = {
+            let unary_http = build_http_client()?;
+            let stream_http = build_http_client()?;
+            (
+                UnaryHandle {
+                    base_uri: base_uri.clone(),
+                    http: unary_http,
+                    auth: auth.clone(),
+                },
+                StreamHandle {
+                    base_uri,
+                    http: stream_http,
+                    auth,
+                },
+            )
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let (unary, stream) = {
+            let transport = build_transport(&base_url)?;
+            (
+                UnaryHandle {
+                    base_uri: base_uri.clone(),
+                    transport: transport.clone(),
+                    auth: auth.clone(),
+                },
+                StreamHandle {
+                    base_uri,
+                    transport,
+                    auth,
+                },
+            )
+        };
 
         Ok(Self {
             config: Arc::new(config),
             base_url,
-            unary: UnaryHandle {
-                base_uri: base_uri.clone(),
-                http: unary_http,
-                auth: auth.clone(),
-            },
-            stream: StreamHandle {
-                base_uri,
-                http: stream_http,
-                auth,
-            },
+            unary,
+            stream,
         })
     }
 
     /// Load config from the environment and construct a client.
+    ///
+    /// Not available on `wasm32` (use [`Client::try_new`] with Wrangler secrets).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_env() -> Result<Self> {
         Self::try_new(Config::from_env()?)
     }
@@ -136,43 +122,44 @@ impl Client {
 
     /// Tonic client bound to the unary HTTP stack.
     pub(crate) fn unary_rpc(&self) -> MyConversationClient<AuthedGrpcWeb> {
-        bind_rpc(
-            self.unary.http.clone(),
-            self.unary.auth.clone(),
-            self.unary.base_uri.clone(),
-        )
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            bind_rpc(
+                self.unary.http.clone(),
+                self.unary.auth.clone(),
+                self.unary.base_uri.clone(),
+            )
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            bind_rpc(
+                self.unary.transport.clone(),
+                self.unary.auth.clone(),
+                self.unary.base_uri.clone(),
+            )
+        }
     }
 
     /// Tonic client bound to the stream HTTP stack.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // Phase 2: in-task subscribe
     pub(crate) fn stream_rpc(&self) -> MyConversationClient<AuthedGrpcWeb> {
-        bind_rpc(
-            self.stream.http.clone(),
-            self.stream.auth.clone(),
-            self.stream.base_uri.clone(),
-        )
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            bind_rpc(
+                self.stream.http.clone(),
+                self.stream.auth.clone(),
+                self.stream.base_uri.clone(),
+            )
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            bind_rpc(
+                self.stream.transport.clone(),
+                self.stream.auth.clone(),
+                self.stream.base_uri.clone(),
+            )
+        }
     }
-}
-
-fn bind_rpc(
-    http: HttpClient,
-    auth: AuthInterceptor,
-    base_uri: Uri,
-) -> MyConversationClient<AuthedGrpcWeb> {
-    let svc = ServiceBuilder::new()
-        .layer(GrpcWebClientLayer::new())
-        .service(http);
-    let svc = InterceptedService::new(svc, auth);
-    MyConversationClient::with_origin(svc, base_uri)
-}
-
-fn build_http_client() -> Result<HttpClient> {
-    let https = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_webpki_roots()
-        .https_or_http()
-        .enable_http1()
-        .build();
-
-    Ok(HyperClient::builder(TokioExecutor::new()).build(https))
 }
 
 #[cfg(test)]

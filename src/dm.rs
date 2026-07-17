@@ -1,12 +1,19 @@
 //! Direct message send / typing / stream APIs.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::pin::Pin;
+#[cfg(not(target_arch = "wasm32"))]
 use std::task::{Context, Poll};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
+#[cfg(not(target_arch = "wasm32"))]
 use futures_util::Stream;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time::timeout;
+#[cfg(not(target_arch = "wasm32"))]
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -14,23 +21,31 @@ use crate::chunking::chunk_text;
 use crate::client::Client;
 use crate::error::{Error, Result};
 use crate::group::SendGroupMessageResult;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::pb::genjutsu::myconversation::v1::StreamDirectMessagesRequest;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::pb::genjutsu::myconversation::v1::direct_message_stream_event::Item as DmStreamItem;
 use crate::pb::genjutsu::myconversation::v1::{
     CreateOrGetDirectMessageRequest, SendDirectMessageRequest, SignalDirectMessageTypingRequest,
-    StreamDirectMessagesRequest,
 };
-use crate::stream::compute_reconnect_delay;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::reconnect::compute_reconnect_delay;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::types::{IncomingDirectMessage, IncomingEvent};
 
+#[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_IDLE: Duration = Duration::from_secs(90);
+#[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_MAX_AGE: Duration = Duration::from_secs(25 * 60);
 
 /// Async stream of DM [`IncomingEvent`]s with automatic reconnect.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct DirectEventStream {
     rx: mpsc::Receiver<Result<IncomingEvent>>,
     join: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Stream for DirectEventStream {
     type Item = Result<IncomingEvent>;
 
@@ -39,6 +54,7 @@ impl Stream for DirectEventStream {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for DirectEventStream {
     fn drop(&mut self) {
         if let Some(join) = self.join.take() {
@@ -122,6 +138,9 @@ impl Client {
     }
 
     /// Subscribe to DM events with the same reconnect policy as groups.
+    ///
+    /// Not available on `wasm32` yet (Phase 2: in-task Durable Object sessions).
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn subscribe_dms(&self) -> Result<DirectEventStream> {
         let (tx, rx) = mpsc::channel(64);
         let client = self.clone();
@@ -135,6 +154,7 @@ impl Client {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEvent>>) {
     let mut resume_after_message_id: i64 = 0;
     let mut reconnect_attempt: u32 = 0;

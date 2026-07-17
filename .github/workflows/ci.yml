@@ -25,6 +25,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -37,3 +38,6 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      - name: Check wasm32
+        run: cargo check --target wasm32-unknown-unknown -p onechat-sdk

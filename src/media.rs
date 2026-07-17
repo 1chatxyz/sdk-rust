@@ -1,7 +1,9 @@
 //! Media helpers: classify attachments, send pre-uploaded URLs, download.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 use crate::client::Client;
@@ -83,19 +85,15 @@ pub fn media_urls_from_paths(
 }
 
 impl Client {
-    /// Download a media URL/path to `dest_dir`, returning the written path.
+    /// Download media bytes for a URL/path (portable; no filesystem).
     ///
     /// Protected `api/v1/upload/...` paths are fetched from `API_1CHAT_URL` with
     /// bot auth headers. External https URLs are fetched without auth.
-    pub async fn download_media(
-        &self,
-        path_or_url: &str,
-        dest_dir: impl AsRef<Path>,
-    ) -> Result<PathBuf> {
-        let dest_dir = dest_dir.as_ref();
-        std::fs::create_dir_all(dest_dir)
-            .map_err(|e| Error::Transport(format!("create dest_dir: {e}")))?;
-
+    ///
+    /// Currently implemented for native targets (reqwest). Wasm download lands
+    /// with the Workers listen path.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn download_media_bytes(&self, path_or_url: &str) -> Result<Vec<u8>> {
         let (url, authed) = resolve_fetch_url(self.base_url(), path_or_url);
         let mut headers = HeaderMap::new();
         if authed {
@@ -130,7 +128,24 @@ impl Client {
                 "downloaded file exceeds {MAX_FILE_BYTES} bytes"
             )));
         }
+        Ok(bytes.to_vec())
+    }
 
+    /// Download a media URL/path to `dest_dir`, returning the written path.
+    ///
+    /// Native-only (uses the filesystem). Prefer [`Self::download_media_bytes`]
+    /// when targeting wasm or in-memory consumers.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn download_media(
+        &self,
+        path_or_url: &str,
+        dest_dir: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let dest_dir = dest_dir.as_ref();
+        std::fs::create_dir_all(dest_dir)
+            .map_err(|e| Error::Transport(format!("create dest_dir: {e}")))?;
+
+        let bytes = self.download_media_bytes(path_or_url).await?;
         let name = Path::new(path_or_url)
             .file_name()
             .and_then(|s| s.to_str())
@@ -142,6 +157,7 @@ impl Client {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn resolve_fetch_url(base: &str, path_or_url: &str) -> (String, bool) {
     if path_or_url.starts_with("http://") || path_or_url.starts_with("https://") {
         let authed = path_or_url.contains("/api/v1/upload/");
@@ -164,6 +180,7 @@ mod tests {
         assert!(classify_media_path("clip.mp4").is_err());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn resolve_upload_path() {
         let (url, authed) = resolve_fetch_url("https://gw.example", "api/v1/upload/x/y.png");
