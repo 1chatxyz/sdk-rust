@@ -64,9 +64,15 @@ fn unauthorized() -> Result<Response> {
 fn sdk_client(env: &Env) -> Result<Client> {
     // Required so SubscribeOptions::ignore_self can drop the bot's own echoes.
     let user_id = env_string(env, "ONECHAT_USER_ID")?;
-    if user_id.trim().is_empty() {
+    let user_id = user_id.trim().to_string();
+    if user_id.is_empty() {
         return Err(Error::RustError(
             "ONECHAT_USER_ID is required (self-filter for echo replies)".into(),
+        ));
+    }
+    if user_id.parse::<i64>().is_err() {
+        return Err(Error::RustError(
+            "ONECHAT_USER_ID must be a numeric user id".into(),
         ));
     }
     let config = Config {
