@@ -110,8 +110,24 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
             move |client, msg| {
                 let counter = Rc::clone(&counter);
                 async move {
+                    console_log!(
+                        "echo inbound id={} group={} from={} text_len={}",
+                        msg.id,
+                        msg.group_id,
+                        msg.sender_user_id,
+                        msg.text.len()
+                    );
+                    // Do not await unary while the listen stream is open — Workers
+                    // Fetch deadlocks concurrent unary + streaming to the same origin.
+                    let group_id = msg.group_id;
                     let reply = format!("echo: {}", msg.text);
-                    client.reply_group(msg.group_id, reply).await?;
+                    let client = client.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        match client.reply_group(group_id, reply).await {
+                            Ok(_) => console_log!("echo reply ok group={group_id}"),
+                            Err(err) => console_log!("echo reply err: {err}"),
+                        }
+                    });
                     counter.set(counter.get().saturating_add(1));
                     Ok(())
                 }

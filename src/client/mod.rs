@@ -79,16 +79,19 @@ impl Client {
 
         #[cfg(target_arch = "wasm32")]
         let (unary, stream) = {
-            let transport = build_transport(&base_url)?;
+            // Separate Fetch clients — sharing one transport deadlocks when a
+            // unary reply runs while a server-stream is open (Workers echo path).
+            let unary_transport = build_transport(&base_url)?;
+            let stream_transport = build_transport(&base_url)?;
             (
                 UnaryHandle {
                     base_uri: base_uri.clone(),
-                    transport: transport.clone(),
+                    transport: unary_transport,
                     auth: auth.clone(),
                 },
                 StreamHandle {
                     base_uri,
-                    transport,
+                    transport: stream_transport,
                     auth,
                 },
             )
