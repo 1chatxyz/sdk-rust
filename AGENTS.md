@@ -86,7 +86,7 @@ cargo run --example send_group_message -- "hello"
 
 Do **not** keep a forever Cron / open Fetch stream outside a Durable Object session. Plain outbound `fetch()` does not keep a DO alive — alarms do.
 
-On Workers, **do not `await` a unary RPC (e.g. `reply_group`) inside a listen handler while the stream is still open** — concurrent Fetch to the same origin deadlocks. Queue work in the handler and send after `run_*_session` returns (see `cf_echo_bot`), or run send-only on a separate alarm.
+On Workers, **do not `await` a unary RPC (e.g. `reply_group`) inside a listen handler while the stream is still open** — concurrent Fetch to the same origin deadlocks. Use `wasm_bindgen_futures::spawn_local` for sends (and wait for in-flight work before the alarm returns — see `cf_echo_bot`), or send from a separate invocation after the stream ends.
 
 Template: [`examples/cf_echo_bot/`](examples/cf_echo_bot/). Spike notes: [`examples/cf_spike/`](examples/cf_spike/).
 
