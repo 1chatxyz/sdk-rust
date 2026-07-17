@@ -49,7 +49,7 @@ uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.3", features = ["futures"] }
-tonic-web-wasm-client = { path = "vendor/tonic-web-wasm-client" }
+tonic-web-wasm-client = { package = "onechat-tonic-web-wasm-client", version = "0.1.0", path = "vendor/tonic-web-wasm-client" }
 uuid = { version = "1", features = ["v4", "js"] }
 
 [build-dependencies]

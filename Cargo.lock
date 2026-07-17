@@ -603,6 +603,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
+ "onechat-tonic-web-wasm-client",
  "prost",
  "prost-types",
  "regex",
@@ -613,11 +614,33 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tonic-web",
- "tonic-web-wasm-client",
  "tower",
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "onechat-tonic-web-wasm-client"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "byteorder",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "httparse",
+ "js-sys",
+ "pin-project",
+ "thiserror",
+ "tonic",
+ "tower-service",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-streams",
+ "web-sys",
 ]
 
 [[package]]
@@ -1292,29 +1315,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "tonic-web-wasm-client"
-version = "0.9.1"
-dependencies = [
- "base64",
- "byteorder",
- "bytes",
- "futures-util",
- "http",
- "http-body",
- "http-body-util",
- "httparse",
- "js-sys",
- "pin-project",
- "thiserror",
- "tonic",
- "tower-service",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-streams",
- "web-sys",
 ]
 
 [[package]]
