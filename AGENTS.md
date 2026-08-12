@@ -84,9 +84,9 @@ Template: [`examples/cf_echo_bot/`](examples/cf_echo_bot/). Spike notes: [`examp
 | Area | Methods / types |
 |------|-----------------|
 | Config | `Config`, `Client::from_env`, `Client::try_new` |
-| Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `set_typing` |
-| Group stream | `run_group_session` (all targets), `run_group_bot` (native forever), `subscribe_groups` (native), `ListenSessionOutcome`, `SubscribeOptions`, `IncomingEvent` |
-| DMs | `create_or_get_dm`, `reply_dm`, `send_dm_text`, `set_dm_typing`, `run_dm_session`, `run_dm_bot` (native), `subscribe_dms` (native) |
+| Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `reply_group_with_options`, `GroupSendOptions`, `set_typing` |
+| Group stream | `run_group_session` (all targets), `run_group_bot` (native forever), `subscribe_groups` (native), `ListenSessionOutcome`, `SubscribeOptions`, `IncomingEvent`, `SenderKind` |
+| DMs | `create_or_get_dm`, `reply_dm`, `reply_dm_with_options`, `send_dm_text`, `send_dm_text_with_options`, `DmSendOptions`, `set_dm_typing`, `run_dm_session`, `run_dm_bot` (native), `subscribe_dms` (native) |
 | Media | `MediaUrls`, `media_urls_from_paths`, `download_media_bytes`, `download_media` (native path; max 5×20MB; **no video**) |
 | Reactions | `react_group_message`, `react_dm_message` |
 | Mentions | `format_mention` → `[[@Name:id]]`, `extract_mentioned_user_ids` |
@@ -100,6 +100,25 @@ use onechat_sdk::format_mention;
 let text = format!("Hi {}", format_mention("Alice", 42));
 client.reply_group(group_id, text).await?;
 ```
+
+### Threads / Telegram bridge (optional)
+
+```rust
+use onechat_sdk::{GroupSendOptions, MediaUrls};
+
+let mut opts = GroupSendOptions::new();
+opts.message_thread_root_id = parent_id;
+opts.also_send_to_timeline = true;
+client
+    .reply_group_with_options(group_id, "thread reply", MediaUrls::default(), opts)
+    .await?;
+```
+
+Inbound group messages expose `sender_kind` (`User` / `TelegramGuest` / `System`), Telegram guest fields, and `voices`. `SubscribeOptions::new()` sets `ignore_system: true` (skip automated notices) and `require_mention` treats `@all` (`mentions_all`) as a match.
+
+### Stream resume
+
+Listen resume uses **message id** only (`resume_after_message_id`). Proto also has `resume_after_event_id` for member/guest/meta replay — the SDK does not track event ids yet (message-only bots do not need them).
 
 ### Media (pre-uploaded URLs)
 

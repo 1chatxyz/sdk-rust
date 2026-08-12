@@ -9,7 +9,7 @@ Rust library name: `onechat_sdk`
 
 ```toml
 [dependencies]
-onechat-sdk = "0.2"
+onechat-sdk = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
 ```
@@ -49,6 +49,8 @@ async fn main() -> onechat_sdk::Result<()> {
 ### Also supported
 
 - **DMs:** `create_or_get_dm`, `reply_dm(thread_id, other_user_id, text)`, `subscribe_dms`
+- **Threads / options:** `GroupSendOptions` / `DmSendOptions` via `reply_group_with_options` / `reply_dm_with_options`
+- **Inbound:** `SenderKind`, Telegram guest fields, `voices`, `@all` mention gate (`SubscribeOptions`)
 - **Media:** `reply_group_with_media` / `download_media` (pre-uploaded URLs; no video)
 - **Reactions:** `react_group_message` / `react_dm_message`
 - **Mentions:** `format_mention` → `[[@Name:id]]`

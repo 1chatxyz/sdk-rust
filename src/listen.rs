@@ -34,7 +34,7 @@ use crate::pb::genjutsu::myconversation::v1::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::reconnect::compute_reconnect_delay;
-use crate::types::{IncomingDirectMessage, IncomingMessage, SubscribeOptions};
+use crate::types::{IncomingDirectMessage, IncomingMessage, SenderKind, SubscribeOptions};
 
 const DEFAULT_IDLE: Duration = Duration::from_secs(90);
 
@@ -266,7 +266,7 @@ fn bump_resume(resume_after_message_id: &mut i64, message_id: i64) {
 /// On wasm, concurrent enqueue during handlers is disabled (unary+stream deadlock).
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum PendingGroup {
-    Message(IncomingMessage),
+    Message(Box<IncomingMessage>),
     /// Filtered out (allowlist / self / mention); advance resume only when drained.
     Skipped(i64),
 }
@@ -318,7 +318,7 @@ where
                     if let Err(control) = await_group_handler(
                         client,
                         handler,
-                        incoming,
+                        *incoming,
                         &mut stream,
                         last_event,
                         &mut pending,
@@ -636,7 +636,7 @@ where
             PendingGroup::Skipped(id) => bump_resume(resume_after_message_id, id),
             PendingGroup::Message(incoming) => {
                 let id = incoming.id;
-                match handler(client.clone(), incoming).await {
+                match handler(client.clone(), *incoming).await {
                     Ok(()) => bump_resume(resume_after_message_id, id),
                     Err(err) => return fatal(*resume_after_message_id, err),
                 }
@@ -738,15 +738,7 @@ where
     match event.item {
         Some(DmStreamItem::Ping(_)) => Ok(()),
         Some(DmStreamItem::Message(msg)) => {
-            let incoming = IncomingDirectMessage {
-                id: msg.id,
-                thread_id: msg.thread_id,
-                sender_user_id: msg.sender_user_id,
-                sender_username: msg.sender_username,
-                text: msg.content,
-                images: msg.images,
-                files: msg.files,
-            };
+            let incoming = map_dm_message(msg);
             await_dm_handler(
                 client,
                 handler,
@@ -913,7 +905,7 @@ fn enqueue_group_stream_event(
         Some(StreamItem::Ping(_)) => {}
         Some(StreamItem::Message(msg)) => {
             if let Some(incoming) = map_group_message(msg.clone(), client, options) {
-                pending.push_back(PendingGroup::Message(incoming));
+                pending.push_back(PendingGroup::Message(Box::new(incoming)));
             } else {
                 pending.push_back(PendingGroup::Skipped(msg.id));
             }
@@ -952,15 +944,7 @@ fn enqueue_dm_stream_event(
     match event.item {
         Some(DmStreamItem::Ping(_)) => {}
         Some(DmStreamItem::Message(msg)) => {
-            pending.push_back(IncomingDirectMessage {
-                id: msg.id,
-                thread_id: msg.thread_id,
-                sender_user_id: msg.sender_user_id,
-                sender_username: msg.sender_username,
-                text: msg.content,
-                images: msg.images,
-                files: msg.files,
-            });
+            pending.push_back(map_dm_message(msg));
         }
         _ => {}
     }
@@ -1067,6 +1051,23 @@ where
     }
 }
 
+pub(crate) fn map_dm_message(
+    msg: crate::pb::genjutsu::myconversation::v1::DirectMessageInfo,
+) -> IncomingDirectMessage {
+    IncomingDirectMessage {
+        id: msg.id,
+        thread_id: msg.thread_id,
+        sender_user_id: msg.sender_user_id,
+        sender_username: msg.sender_username,
+        text: msg.content,
+        images: msg.images,
+        files: msg.files,
+        reply_to_message_id: msg.reply_to_message_id,
+        message_thread_root_id: msg.message_thread_root_id,
+        also_sent_to_timeline: msg.also_sent_to_timeline,
+    }
+}
+
 pub(crate) fn map_group_message(
     msg: crate::pb::genjutsu::myconversation::v1::ChatGroupMessageInfo,
     client: &Client,
@@ -1076,6 +1077,11 @@ pub(crate) fn map_group_message(
         if !allow.contains(&msg.group_id) {
             return None;
         }
+    }
+
+    let sender_kind = SenderKind::from_proto(msg.sender_kind);
+    if options.ignore_system && sender_kind == SenderKind::System {
+        return None;
     }
 
     if options.ignore_self {
@@ -1090,6 +1096,7 @@ pub(crate) fn map_group_message(
 
     if options.require_mention {
         let cfg = client.config();
+        let by_all = msg.mentions_all;
         let by_id = cfg
             .user_id
             .as_deref()
@@ -1099,10 +1106,17 @@ pub(crate) fn map_group_message(
             .username
             .as_deref()
             .is_some_and(|u| !u.is_empty() && msg.content.contains(u));
-        if !by_id && !by_name {
+        if !by_all && !by_id && !by_name {
             return None;
         }
     }
+
+    let telegram_user_id = if sender_kind == SenderKind::TelegramGuest && msg.external_sender_id > 0
+    {
+        Some(msg.external_sender_id)
+    } else {
+        None
+    };
 
     Some(IncomingMessage {
         id: msg.id,
@@ -1113,5 +1127,97 @@ pub(crate) fn map_group_message(
         mentioned_user_ids: msg.mentioned_user_ids,
         images: msg.images,
         files: msg.files,
+        sender_kind,
+        telegram_user_id,
+        telegram_username: msg.external_username,
+        telegram_display_name: msg.external_display_name,
+        telegram_avatar_url: msg.external_avatar_url,
+        mentioned_telegram_user_ids: msg.mentioned_telegram_user_ids,
+        voices: msg.voices,
+        reply_to_message_id: msg.reply_to.as_ref().map(|m| m.id).unwrap_or(0),
+        message_thread_root_id: msg.message_thread_root_id,
+        mentions_all: msg.mentions_all,
+        sender_anonymous: msg.sender_anonymous,
+        also_sent_to_timeline: msg.also_sent_to_timeline,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::pb::genjutsu::myconversation::model::v1::ChatGroupMessageSenderKind;
+    use crate::pb::genjutsu::myconversation::v1::ChatGroupMessageInfo;
+
+    fn client_with_bot(user_id: &str, username: &str) -> Client {
+        Client::try_new(Config {
+            api_url: "https://gateway.example.com".into(),
+            tenant_id: "t".into(),
+            bot_token: "tok".into(),
+            user_id: Some(user_id.into()),
+            username: Some(username.into()),
+        })
+        .unwrap()
+    }
+
+    fn base_msg() -> ChatGroupMessageInfo {
+        ChatGroupMessageInfo {
+            id: 10,
+            group_id: 7,
+            sender_user_id: 99,
+            sender_username: "alice".into(),
+            content: "hello".into(),
+            sender_kind: ChatGroupMessageSenderKind::User as i32,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn drops_system_when_ignore_system() {
+        let client = client_with_bot("1", "bot");
+        let mut msg = base_msg();
+        msg.sender_kind = ChatGroupMessageSenderKind::System as i32;
+        msg.sender_user_id = 0;
+        assert!(map_group_message(msg, &client, &SubscribeOptions::new()).is_none());
+    }
+
+    #[test]
+    fn keeps_system_when_ignore_system_false() {
+        let client = client_with_bot("1", "bot");
+        let mut msg = base_msg();
+        msg.sender_kind = ChatGroupMessageSenderKind::System as i32;
+        let mut opts = SubscribeOptions::new();
+        opts.ignore_system = false;
+        let mapped = map_group_message(msg, &client, &opts).unwrap();
+        assert_eq!(mapped.sender_kind, SenderKind::System);
+    }
+
+    #[test]
+    fn maps_telegram_guest_fields() {
+        let client = client_with_bot("1", "bot");
+        let mut msg = base_msg();
+        msg.sender_kind = ChatGroupMessageSenderKind::TelegramGuest as i32;
+        msg.sender_user_id = 0;
+        msg.external_sender_id = 555;
+        msg.external_username = "tg_user".into();
+        msg.external_display_name = "TG User".into();
+        msg.voices = vec!["voice.ogg".into()];
+        let mapped = map_group_message(msg, &client, &SubscribeOptions::new()).unwrap();
+        assert_eq!(mapped.sender_kind, SenderKind::TelegramGuest);
+        assert_eq!(mapped.telegram_user_id, Some(555));
+        assert_eq!(mapped.telegram_username, "tg_user");
+        assert_eq!(mapped.telegram_display_name, "TG User");
+        assert_eq!(mapped.voices, vec!["voice.ogg"]);
+    }
+
+    #[test]
+    fn require_mention_accepts_mentions_all() {
+        let client = client_with_bot("42", "mybot");
+        let mut msg = base_msg();
+        msg.mentions_all = true;
+        msg.mentioned_user_ids.clear();
+        let mut opts = SubscribeOptions::new();
+        opts.require_mention = true;
+        assert!(map_group_message(msg, &client, &opts).is_some());
+    }
 }

@@ -22,6 +22,8 @@ use crate::client::Client;
 use crate::error::{Error, Result};
 use crate::group::SendGroupMessageResult;
 #[cfg(not(target_arch = "wasm32"))]
+use crate::listen::map_dm_message;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::pb::genjutsu::myconversation::v1::StreamDirectMessagesRequest;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::pb::genjutsu::myconversation::v1::direct_message_stream_event::Item as DmStreamItem;
@@ -31,7 +33,35 @@ use crate::pb::genjutsu::myconversation::v1::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::reconnect::compute_reconnect_delay;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::types::{IncomingDirectMessage, IncomingEvent};
+use crate::types::IncomingEvent;
+
+/// Optional fields for DM sends (reply/thread / timeline projection).
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct DmSendOptions {
+    /// Quote/reply parent message id (`0` = none).
+    pub reply_to_message_id: i64,
+    /// Thread root id (`0` = top-level timeline).
+    pub message_thread_root_id: i64,
+    /// Also project a thread reply onto the main DM timeline (requires `message_thread_root_id > 0`).
+    pub also_send_to_timeline: bool,
+}
+
+impl DmSendOptions {
+    /// Empty options (top-level send).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.also_send_to_timeline && self.message_thread_root_id <= 0 {
+            return Err(Error::Config(
+                "also_send_to_timeline requires message_thread_root_id > 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_IDLE: Duration = Duration::from_secs(90);
@@ -84,22 +114,28 @@ impl Client {
         other_user_id: i64,
         text: impl Into<String>,
     ) -> Result<i64> {
+        self.send_dm_text_with_options(thread_id, other_user_id, text, DmSendOptions::new())
+            .await
+    }
+
+    /// Send a single DM chunk with [`DmSendOptions`].
+    pub async fn send_dm_text_with_options(
+        &self,
+        thread_id: i64,
+        other_user_id: i64,
+        text: impl Into<String>,
+        options: DmSendOptions,
+    ) -> Result<i64> {
+        options.validate()?;
         let req = SendDirectMessageRequest {
             thread_id,
             other_user_id,
             content: text.into(),
-            images: Vec::new(),
-            videos: Vec::new(),
-            files: Vec::new(),
             client_message_id: Uuid::new_v4().to_string(),
-            reply_to_message_id: 0,
-            reply_quote_text: String::new(),
-            reply_quote_position: 0,
-            message_thread_root_id: 0,
-            sticker_id: 0,
-            link_previews: Vec::new(),
-            shared_message_hash: String::new(),
-            file_metas: Vec::new(),
+            reply_to_message_id: options.reply_to_message_id,
+            message_thread_root_id: options.message_thread_root_id,
+            also_send_to_timeline: options.also_send_to_timeline,
+            ..Default::default()
         };
         let mut client = self.unary_rpc();
         let reply = client.send_direct_message(req).await?.into_inner();
@@ -116,10 +152,31 @@ impl Client {
         other_user_id: i64,
         text: impl AsRef<str>,
     ) -> Result<SendGroupMessageResult> {
+        self.reply_dm_with_options(thread_id, other_user_id, text, DmSendOptions::new())
+            .await
+    }
+
+    /// Reply in a DM thread with [`DmSendOptions`] (options apply to the first chunk only).
+    pub async fn reply_dm_with_options(
+        &self,
+        thread_id: i64,
+        other_user_id: i64,
+        text: impl AsRef<str>,
+        options: DmSendOptions,
+    ) -> Result<SendGroupMessageResult> {
+        options.validate()?;
         let chunks = chunk_text(text.as_ref());
         let mut message_ids = Vec::with_capacity(chunks.len());
-        for chunk in chunks {
-            message_ids.push(self.send_dm_text(thread_id, other_user_id, chunk).await?);
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let opts = if i == 0 {
+                options.clone()
+            } else {
+                DmSendOptions::new()
+            };
+            message_ids.push(
+                self.send_dm_text_with_options(thread_id, other_user_id, chunk, opts)
+                    .await?,
+            );
         }
         Ok(SendGroupMessageResult { message_ids })
     }
@@ -199,15 +256,7 @@ async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEven
                             if msg.id > resume_after_message_id {
                                 resume_after_message_id = msg.id;
                             }
-                            let incoming = IncomingDirectMessage {
-                                id: msg.id,
-                                thread_id: msg.thread_id,
-                                sender_user_id: msg.sender_user_id,
-                                sender_username: msg.sender_username,
-                                text: msg.content,
-                                images: msg.images,
-                                files: msg.files,
-                            };
+                            let incoming = map_dm_message(msg);
                             if tx
                                 .send(Ok(IncomingEvent::DirectMessage(incoming)))
                                 .await
@@ -239,5 +288,20 @@ async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEven
         warn!(?delay, reconnect_attempt, "dm stream reconnecting");
         reconnect_attempt = reconnect_attempt.saturating_add(1);
         tokio::time::sleep(delay).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn also_send_to_timeline_requires_thread_root() {
+        let opts = DmSendOptions {
+            also_send_to_timeline: true,
+            message_thread_root_id: 0,
+            ..DmSendOptions::new()
+        };
+        assert!(matches!(opts.validate(), Err(Error::Config(_))));
     }
 }
