@@ -39,12 +39,14 @@ mod config;
 mod dm;
 mod error;
 mod group;
+mod history;
 mod listen;
 mod media;
 mod mention;
 mod pb;
 mod reaction;
 mod reconnect;
+mod resume;
 #[cfg(not(target_arch = "wasm32"))]
 mod stream;
 mod transport;
@@ -58,6 +60,10 @@ pub use dm::DirectEventStream;
 pub use dm::DmSendOptions;
 pub use error::{Error, Result};
 pub use group::{GroupSendOptions, SendGroupMessageResult};
+pub use history::{
+    DmMessageThreadInfo, DmMessagesPage, DmThreadMessagesPage, DmThreadsPage, GroupMessagesPage,
+    GroupThreadMessagesPage, GroupThreadsPage, ListMessagesOptions, MessageThreadInfo,
+};
 pub use listen::{ListenEndReason, ListenSessionOutcome};
 pub use media::{
     MAX_ATTACHMENTS, MAX_FILE_BYTES, MediaKind, MediaUrls, classify_media_path,
@@ -66,9 +72,10 @@ pub use media::{
 pub use mention::{extract_mentioned_user_ids, format_mention};
 pub use reaction::Reaction;
 pub use reconnect::compute_reconnect_delay;
+pub use resume::StreamResume;
 #[cfg(not(target_arch = "wasm32"))]
 pub use stream::GroupEventStream;
 pub use types::{
-    IncomingDirectMessage, IncomingEvent, IncomingMessage, IncomingTyping, SenderKind,
-    SubscribeOptions,
+    IncomingDirectMessage, IncomingEvent, IncomingGuestPresence, IncomingMessage, IncomingPresence,
+    IncomingTyping, PresenceState, SenderKind, SubscribeOptions,
 };

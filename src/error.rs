@@ -22,12 +22,17 @@ pub enum Error {
 
     /// Listen session failed after advancing the resume cursor.
     ///
-    /// Persist [`Self::Listen::resume_after_message_id`] before retrying so
-    /// Durable Object alarms do not redeliver already-handled messages.
-    #[error("listen error after resume {resume_after_message_id}: {source}")]
+    /// Persist [`Self::Listen::resume_after_message_id`] /
+    /// [`Self::Listen::resume_after_event_id`] before retrying so Durable Object
+    /// alarms do not redeliver already-handled messages/events.
+    #[error(
+        "listen error after resume message={resume_after_message_id} event={resume_after_event_id}: {source}"
+    )]
     Listen {
         /// Last successfully handled message id (safe to persist).
         resume_after_message_id: i64,
+        /// Last successfully handled stream event id (safe to persist).
+        resume_after_event_id: i64,
         /// Underlying failure (handler error or stream open failure).
         #[source]
         source: Box<Error>,

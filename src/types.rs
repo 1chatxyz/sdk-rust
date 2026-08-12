@@ -114,6 +114,72 @@ pub struct IncomingDirectMessage {
     pub also_sent_to_timeline: bool,
 }
 
+/// Telegram guest join/leave in a bridged chat group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct IncomingGuestPresence {
+    /// Chat group id.
+    pub group_id: i64,
+    /// `true` when the guest joined; `false` when they left.
+    pub joined: bool,
+    /// Telegram user id.
+    pub telegram_user_id: i64,
+    /// Display name snapshot (may be empty).
+    pub display_name: String,
+    /// Telegram @username without `@` (may be empty).
+    pub username: String,
+    /// Avatar URL/path (may be empty).
+    pub avatar_url: String,
+    /// Stream event log id (for resume).
+    pub event_id: i64,
+}
+
+/// Staff presence state from live stream fanout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PresenceState {
+    /// Proto unspecified / unknown.
+    Unspecified,
+    /// Actively online.
+    Online,
+    /// Idle / away from keyboard.
+    Idle,
+    /// Offline.
+    Offline,
+    /// Explicitly away.
+    Away,
+    /// Do not disturb.
+    DoNotDisturb,
+}
+
+impl PresenceState {
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn from_proto(value: i32) -> Self {
+        use crate::pb::genjutsu::myconversation::v1::PresenceState as P;
+        match P::try_from(value).unwrap_or(P::Unspecified) {
+            P::Unspecified => Self::Unspecified,
+            P::Online => Self::Online,
+            P::Idle => Self::Idle,
+            P::Offline => Self::Offline,
+            P::Away => Self::Away,
+            P::DoNotDisturb => Self::DoNotDisturb,
+        }
+    }
+}
+
+/// Live staff presence change (not replayed on reconnect).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct IncomingPresence {
+    /// Staff user id.
+    pub user_id: i64,
+    /// Effective presence badge.
+    pub presence: PresenceState,
+    /// Custom status emoji (may be empty).
+    pub custom_status_emoji: String,
+    /// Custom status text (may be empty).
+    pub custom_status_text: String,
+}
+
 /// High-level inbound events (pings never surface here).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IncomingEvent {
@@ -132,6 +198,10 @@ pub enum IncomingEvent {
         /// Whether typing started or stopped.
         typing: bool,
     },
+    /// Telegram guest joined/left a bridged group.
+    GuestPresence(IncomingGuestPresence),
+    /// Staff presence change (group or DM stream).
+    Presence(IncomingPresence),
 }
 
 /// Filters applied inside [`crate::Client::subscribe_groups`] / listen sessions.

@@ -236,6 +236,7 @@ async fn run_echo_session(env: &Env, storage: &Storage) -> Result<SessionReport>
         ),
         Err(SdkError::Listen {
             resume_after_message_id: r,
+            resume_after_event_id: _,
             source,
         }) => {
             let resume = if worker.scheduled.get() > 0 {

@@ -33,7 +33,9 @@ use crate::pb::genjutsu::myconversation::v1::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::reconnect::compute_reconnect_delay;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::types::IncomingEvent;
+use crate::resume::StreamResume;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::types::{IncomingEvent, IncomingPresence, PresenceState};
 
 /// Optional fields for DM sends (reply/thread / timeline projection).
 #[derive(Debug, Clone, Default)]
@@ -213,7 +215,7 @@ impl Client {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEvent>>) {
-    let mut resume_after_message_id: i64 = 0;
+    let mut resume = StreamResume::new();
     let mut reconnect_attempt: u32 = 0;
 
     loop {
@@ -223,14 +225,16 @@ async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEven
         let started = Instant::now();
         let mut last_event = Instant::now();
         debug!(
-            resume_after_message_id,
-            reconnect_attempt, "opening StreamDirectMessages"
+            resume_after_message_id = resume.after_message_id,
+            resume_after_event_id = resume.after_event_id,
+            reconnect_attempt,
+            "opening StreamDirectMessages"
         );
 
         let mut rpc = client.stream_rpc();
         let request = StreamDirectMessagesRequest {
-            resume_after_message_id,
-            resume_after_event_id: 0,
+            resume_after_message_id: resume.after_message_id,
+            resume_after_event_id: resume.after_event_id,
         };
         let mut stream = match rpc.stream_direct_messages(request).await {
             Ok(s) => s.into_inner(),
@@ -253,9 +257,7 @@ async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEven
                     match event.item {
                         Some(DmStreamItem::Ping(_)) => {}
                         Some(DmStreamItem::Message(msg)) => {
-                            if msg.id > resume_after_message_id {
-                                resume_after_message_id = msg.id;
-                            }
+                            resume.bump_message(msg.id);
                             let incoming = map_dm_message(msg);
                             if tx
                                 .send(Ok(IncomingEvent::DirectMessage(incoming)))
@@ -272,6 +274,25 @@ async fn run_dm_stream_loop(client: Client, tx: mpsc::Sender<Result<IncomingEven
                                 typing: t.typing,
                             };
                             if tx.send(Ok(typing)).await.is_err() {
+                                return;
+                            }
+                        }
+                        Some(DmStreamItem::PinnedChange(p)) => {
+                            resume.bump_event(p.event_id);
+                        }
+                        Some(DmStreamItem::PresenceChange(p)) => {
+                            let status = p.custom_status.unwrap_or_default();
+                            let incoming = IncomingPresence {
+                                user_id: p.user_id,
+                                presence: PresenceState::from_proto(p.presence),
+                                custom_status_emoji: status.emoji,
+                                custom_status_text: status.text,
+                            };
+                            if tx
+                                .send(Ok(IncomingEvent::Presence(incoming)))
+                                .await
+                                .is_err()
+                            {
                                 return;
                             }
                         }
