@@ -110,12 +110,13 @@ use onechat_sdk::{GroupSendOptions, MediaUrls};
 let mut opts = GroupSendOptions::new();
 opts.message_thread_root_id = parent_id;
 opts.also_send_to_timeline = true;
+opts.topic_id = topic_id; // 0 = main channel
 client
     .reply_group_with_options(group_id, "thread reply", MediaUrls::default(), opts)
     .await?;
 ```
 
-Inbound group messages expose `sender_kind` (`User` / `TelegramGuest` / `System`), Telegram guest fields, and `voices`. `SubscribeOptions::new()` sets `ignore_system: true` (skip automated notices) and `require_mention` treats `@all` (`mentions_all`) as a match.
+Inbound group messages expose `sender_kind` (`User` / `TelegramGuest` / `System`), Telegram guest fields, `voices`, and `topic_id` (`0` = main). `SubscribeOptions::new()` sets `ignore_system: true` (skip automated notices) and `require_mention` treats `@all` (`mentions_all`) as a match.
 
 ### Stream resume
 

@@ -28,6 +28,8 @@ pub struct GroupSendOptions {
     pub message_thread_root_id: i64,
     /// Also project a thread reply onto the parent timeline (requires `message_thread_root_id > 0`).
     pub also_send_to_timeline: bool,
+    /// Group topic id (`0` = main channel).
+    pub topic_id: i64,
     /// Telegram guest mention targets (mutually exclusive with staff mentions / `mention_all`).
     pub mentioned_telegram_user_ids: Vec<i64>,
     /// Expand mentions to all active group members at send time.
@@ -113,6 +115,7 @@ impl Client {
             also_send_to_timeline: options.also_send_to_timeline,
             mentioned_telegram_user_ids: options.mentioned_telegram_user_ids,
             mention_all: options.mention_all,
+            topic_id: options.topic_id,
             ..Default::default()
         };
         let mut client = self.unary_rpc();
@@ -255,5 +258,10 @@ mod tests {
             ..GroupSendOptions::new()
         };
         assert!(opts.validate(&[]).is_ok());
+    }
+
+    #[test]
+    fn topic_id_defaults_to_main_channel() {
+        assert_eq!(GroupSendOptions::new().topic_id, 0);
     }
 }
