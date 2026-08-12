@@ -822,7 +822,7 @@ where
             Ok(Either::Left((result, next))) => {
                 // Handler won the race — still take a stream event that was already ready.
                 let concurrent_end =
-                    drain_ready_group_event(next, client, options, pending, last_event);
+                    drain_ready_group_event(next, client, options, pending, resume, last_event);
                 return match result {
                     Ok(()) => {
                         resume.bump_message(message_id);
@@ -856,7 +856,7 @@ where
                 }
                 Ok(Some(event)) => {
                     *last_event = Instant::now();
-                    enqueue_group_stream_event(event, client, options, pending);
+                    enqueue_group_stream_event(event, client, options, pending, resume);
                 }
             },
         }
@@ -870,6 +870,7 @@ fn drain_ready_group_event<F>(
     client: &Client,
     options: &SubscribeOptions,
     pending: &mut VecDeque<PendingGroup>,
+    resume: &mut StreamResume,
     last_event: &mut Instant,
 ) -> Option<ListenEndReason>
 where
@@ -883,7 +884,7 @@ where
         }
         Some(Ok(Some(event))) => {
             *last_event = Instant::now();
-            enqueue_group_stream_event(event, client, options, pending);
+            enqueue_group_stream_event(event, client, options, pending, resume);
             None
         }
         None => None,
@@ -896,6 +897,7 @@ fn enqueue_group_stream_event(
     client: &Client,
     options: &SubscribeOptions,
     pending: &mut VecDeque<PendingGroup>,
+    resume: &mut StreamResume,
 ) {
     match event.item {
         Some(StreamItem::Ping(_)) => {}
@@ -906,6 +908,11 @@ fn enqueue_group_stream_event(
                 pending.push_back(PendingGroup::Skipped(msg.id));
             }
         }
+        Some(StreamItem::GuestPresenceChange(g)) => resume.bump_event(g.event_id),
+        Some(StreamItem::MemberChange(m)) => resume.bump_event(m.event_id),
+        Some(StreamItem::MetaChange(m)) => resume.bump_event(m.event_id),
+        Some(StreamItem::TopicChange(t)) => resume.bump_event(t.event_id),
+        Some(StreamItem::PinnedChange(p)) => resume.bump_event(p.event_id),
         _ => {}
     }
 }
@@ -914,6 +921,7 @@ fn enqueue_group_stream_event(
 fn drain_ready_dm_event<F>(
     next: F,
     pending: &mut VecDeque<IncomingDirectMessage>,
+    resume: &mut StreamResume,
     last_event: &mut Instant,
 ) -> Option<ListenEndReason>
 where
@@ -925,7 +933,7 @@ where
         Some(Err(_)) => Some(ListenEndReason::StreamError),
         Some(Ok(Some(event))) => {
             *last_event = Instant::now();
-            enqueue_dm_stream_event(event, pending);
+            enqueue_dm_stream_event(event, pending, resume);
             None
         }
         None => None,
@@ -936,12 +944,14 @@ where
 fn enqueue_dm_stream_event(
     event: DirectMessageStreamEvent,
     pending: &mut VecDeque<IncomingDirectMessage>,
+    resume: &mut StreamResume,
 ) {
     match event.item {
         Some(DmStreamItem::Ping(_)) => {}
         Some(DmStreamItem::Message(msg)) => {
             pending.push_back(map_dm_message(msg));
         }
+        Some(DmStreamItem::PinnedChange(p)) => resume.bump_event(p.event_id),
         _ => {}
     }
 }
@@ -1007,7 +1017,7 @@ where
                 };
             }
             Ok(Either::Left((result, next))) => {
-                let concurrent_end = drain_ready_dm_event(next, pending, last_event);
+                let concurrent_end = drain_ready_dm_event(next, pending, resume, last_event);
                 return match result {
                     Ok(()) => {
                         resume.bump_message(message_id);
@@ -1040,7 +1050,7 @@ where
                 }
                 Ok(Some(event)) => {
                     *last_event = Instant::now();
-                    enqueue_dm_stream_event(event, pending);
+                    enqueue_dm_stream_event(event, pending, resume);
                 }
             },
         }
