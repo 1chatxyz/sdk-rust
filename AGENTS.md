@@ -85,8 +85,9 @@ Template: [`examples/cf_echo_bot/`](examples/cf_echo_bot/). Spike notes: [`examp
 |------|-----------------|
 | Config | `Config`, `Client::from_env`, `Client::try_new` |
 | Groups | `reply_group`, `send_group_text`, `send_group_message`, `reply_group_with_media`, `reply_group_with_options`, `GroupSendOptions`, `set_typing` |
-| Group stream | `run_group_session` (all targets), `run_group_bot` (native forever), `subscribe_groups` (native), `ListenSessionOutcome`, `SubscribeOptions`, `IncomingEvent`, `SenderKind` |
+| Group stream | `run_group_session` (all targets), `run_group_bot` (native forever), `subscribe_groups` (native), `ListenSessionOutcome`, `StreamResume`, `SubscribeOptions`, `IncomingEvent`, `SenderKind` |
 | DMs | `create_or_get_dm`, `reply_dm`, `reply_dm_with_options`, `send_dm_text`, `send_dm_text_with_options`, `DmSendOptions`, `set_dm_typing`, `run_dm_session`, `run_dm_bot` (native), `subscribe_dms` (native) |
+| History | `list_group_messages`, `list_group_threads`, `list_group_thread_messages`, `list_dm_messages`, `list_dm_threads`, `list_dm_thread_messages` |
 | Media | `MediaUrls`, `media_urls_from_paths`, `download_media_bytes`, `download_media` (native path; max 5×20MB; **no video**) |
 | Reactions | `react_group_message`, `react_dm_message` |
 | Mentions | `format_mention` → `[[@Name:id]]`, `extract_mentioned_user_ids` |
@@ -118,7 +119,9 @@ Inbound group messages expose `sender_kind` (`User` / `TelegramGuest` / `System`
 
 ### Stream resume
 
-Listen resume uses **message id** only (`resume_after_message_id`). Proto also has `resume_after_event_id` for member/guest/meta replay — the SDK does not track event ids yet (message-only bots do not need them).
+Listen resume tracks **message id** and **event id** (`StreamResume` / `ListenSessionOutcome`). `run_*_session` accepts `impl Into<StreamResume>` so an `i64` message id still works. Persist both cursors on Workers when you care about guest-presence / pin / meta replay; message-only bots can keep using the message id alone.
+
+`subscribe_*` yields `IncomingEvent::GuestPresence` / `IncomingEvent::Presence` in addition to messages and typing.
 
 ### Media (pre-uploaded URLs)
 
@@ -161,7 +164,7 @@ while let Some(event) = dms.next().await {
 
 ### Stream reconnect (built-in)
 
-`run_*_session` ends on disconnect, idle (~90s; pings reset idle), or max age (~25m native; ~14m on `wasm32`). Native `run_*_bot` and `subscribe_*` reconnect with backoff 2s → 60s. Resume uses the last message id. Pings never surface as `IncomingEvent`. On Workers, call `run_*_session` once per Durable Object alarm, persist `resume_after_message_id`, and reschedule — do not keep a forever Cron open.
+`run_*_session` ends on disconnect, idle (~90s; pings reset idle), or max age (~25m native; ~14m on `wasm32`). Native `run_*_bot` and `subscribe_*` reconnect with backoff 2s → 60s. Resume uses last message id + event id. Pings never surface as `IncomingEvent`. On Workers, call `run_*_session` once per Durable Object alarm, persist resume cursors, and reschedule — do not keep a forever Cron open.
 
 ## Repository layout
 

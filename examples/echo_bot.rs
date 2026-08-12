@@ -37,7 +37,9 @@ async fn main() -> onechat_sdk::Result<()> {
             }
             IncomingEvent::Typing(_)
             | IncomingEvent::DirectMessage(_)
-            | IncomingEvent::DirectTyping { .. } => {}
+            | IncomingEvent::DirectTyping { .. }
+            | IncomingEvent::GuestPresence(_)
+            | IncomingEvent::Presence(_) => {}
         }
     }
     Ok(())
