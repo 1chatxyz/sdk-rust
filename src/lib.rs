@@ -55,8 +55,9 @@ pub use client::Client;
 pub use config::Config;
 #[cfg(not(target_arch = "wasm32"))]
 pub use dm::DirectEventStream;
+pub use dm::DmSendOptions;
 pub use error::{Error, Result};
-pub use group::SendGroupMessageResult;
+pub use group::{GroupSendOptions, SendGroupMessageResult};
 pub use listen::{ListenEndReason, ListenSessionOutcome};
 pub use media::{
     MAX_ATTACHMENTS, MAX_FILE_BYTES, MediaKind, MediaUrls, classify_media_path,
@@ -68,5 +69,6 @@ pub use reconnect::compute_reconnect_delay;
 #[cfg(not(target_arch = "wasm32"))]
 pub use stream::GroupEventStream;
 pub use types::{
-    IncomingDirectMessage, IncomingEvent, IncomingMessage, IncomingTyping, SubscribeOptions,
+    IncomingDirectMessage, IncomingEvent, IncomingMessage, IncomingTyping, SenderKind,
+    SubscribeOptions,
 };

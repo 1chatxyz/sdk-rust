@@ -137,21 +137,8 @@ async fn send_unary(env: &Env, group_id: i64, text: &str) -> Result<i64> {
     let req = SendChatGroupMessageRequest {
         group_id,
         content: text.to_string(),
-        mentioned_user_ids: Vec::new(),
         client_message_id: Uuid::new_v4().to_string(),
-        images: Vec::new(),
-        videos: Vec::new(),
-        files: Vec::new(),
-        topic_id: 0,
-        reply_to_message_id: 0,
-        reply_quote_text: String::new(),
-        reply_quote_position: 0,
-        message_thread_root_id: 0,
-        sticker_id: 0,
-        link_previews: Vec::new(),
-        shared_message_hash: String::new(),
-        file_metas: Vec::new(),
-        mention_all: false,
+        ..Default::default()
     };
     let reply = client
         .send_chat_group_message(req)

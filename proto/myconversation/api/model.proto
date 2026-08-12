@@ -128,6 +128,7 @@ enum CustomerSentiment {
 // ── QA evaluation (admin grades CS vs player on external threads) ──
 
 // Scoring criterion for admin QA evaluation. Allowed scores are fixed per criterion (see rubric RPC).
+// Max scores sum to 100 (PRD 6.1).
 enum QAEvaluationCriterion {
   QA_EVALUATION_CRITERION_UNSPECIFIED     = 0;
   QA_EVALUATION_CRITERION_UNDERSTAND_ISSUE = 1;  // max 15: 0,6,9,12,15
@@ -135,38 +136,74 @@ enum QAEvaluationCriterion {
   QA_EVALUATION_CRITERION_CLEAR_SOLUTION   = 3;  // max 20: 0,8,12,16,20
   QA_EVALUATION_CRITERION_ATTITUDE         = 4;  // max 15: 0,6,9,12,15
   QA_EVALUATION_CRITERION_NATURAL_SPEECH   = 5;  // max 10: 0,4,6,8,10
-  QA_EVALUATION_CRITERION_FOLLOW_PROCESS   = 6;  // max 15: 0,3,6,9,15
+  QA_EVALUATION_CRITERION_FOLLOW_PROCESS   = 6;  // max 10: 0,4,6,8,10
   QA_EVALUATION_CRITERION_NEAT_CLOSING     = 7;  // max  5: 0,2,3,4,5
 }
 
-// Critical error checked by QA; each maps to a fixed point deduction.
+// Critical error checked by QA. Legacy: point deduction. Prefer money_penalty on rubric (FE opt-in).
 enum QAEvaluationCriticalError {
   QA_EVALUATION_CRITICAL_ERROR_UNSPECIFIED            = 0;
-  QA_EVALUATION_CRITICAL_ERROR_WRONG_MONEY_INFO       = 1;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_UNCERTAIN_PROMISE      = 2;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_INFO_LEAK              = 3;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_INSULT_CUSTOMER        = 4;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_OUT_OF_PROCESS         = 5;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_UNRESOLVED_CLOSING     = 6;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_WRONG_TRANSFER         = 7;  // -5
-  QA_EVALUATION_CRITICAL_ERROR_UNCHECKED_AI_SUGGESTION = 8; // -5
-  QA_EVALUATION_CRITICAL_ERROR_ABANDONED_CHAT         = 9;  // -3
+  QA_EVALUATION_CRITICAL_ERROR_WRONG_MONEY_INFO       = 1;  // legacy -5 pts / money_penalty on rubric
+  QA_EVALUATION_CRITICAL_ERROR_UNCERTAIN_PROMISE      = 2;
+  QA_EVALUATION_CRITICAL_ERROR_INFO_LEAK              = 3;
+  QA_EVALUATION_CRITICAL_ERROR_INSULT_CUSTOMER        = 4;
+  QA_EVALUATION_CRITICAL_ERROR_OUT_OF_PROCESS         = 5;
+  QA_EVALUATION_CRITICAL_ERROR_UNRESOLVED_CLOSING     = 6;
+  QA_EVALUATION_CRITICAL_ERROR_WRONG_TRANSFER         = 7;
+  QA_EVALUATION_CRITICAL_ERROR_UNCHECKED_AI_SUGGESTION = 8;
+  QA_EVALUATION_CRITICAL_ERROR_ABANDONED_CHAT         = 9;
 }
 
 enum QAEvaluationStatus {
   QA_EVALUATION_STATUS_UNSPECIFIED = 0;
-  QA_EVALUATION_STATUS_PENDING     = 1;  // virtual list filter: no evaluation row yet
+  QA_EVALUATION_STATUS_PENDING     = 1;  // virtual list filter: no row, or invalidated/stale
   QA_EVALUATION_STATUS_EVALUATED   = 2;
   QA_EVALUATION_STATUS_DISPUTE     = 3;
+  // Nonsense / insufficient content — persisted; excluded from staff averages.
+  QA_EVALUATION_STATUS_INELIGIBLE  = 4;
+  // Partial "lưu tạm" — 1..7 criteria OK; no pin/note requirement; excluded from averages.
+  QA_EVALUATION_STATUS_DRAFT       = 5;
 }
 
-// Rating tier derived from total_score for staff scoreboard display.
+// Rating tier derived from total_score for staff scoreboard display (PRD ranking table).
+// Prefer GetQAEvaluationRubric.rating_tiers[] for display labels — do not hardcode ranges in FE.
 enum QAEvaluationRatingTier {
   QA_EVALUATION_RATING_TIER_UNSPECIFIED       = 0;
-  QA_EVALUATION_RATING_TIER_GOOD              = 1;  // >= 90
-  QA_EVALUATION_RATING_TIER_PASS              = 2;  // 80-89
-  QA_EVALUATION_RATING_TIER_NEEDS_IMPROVEMENT = 3;  // 75-79
-  QA_EVALUATION_RATING_TIER_MUST_MENTOR       = 4;  // < 75
+  QA_EVALUATION_RATING_TIER_GOOD              = 1;  // 90-94 Giỏi
+  QA_EVALUATION_RATING_TIER_PASS              = 2;  // 80-84 Đạt
+  QA_EVALUATION_RATING_TIER_NEEDS_IMPROVEMENT = 3;  // 75-79 Cần cải thiện
+  QA_EVALUATION_RATING_TIER_MUST_MENTOR       = 4;  // < 75 Phải kèm cặp lại
+  QA_EVALUATION_RATING_TIER_EXCELLENT         = 5;  // >= 95 Xuất sắc
+  QA_EVALUATION_RATING_TIER_FAIR              = 6;  // 85-89 Khá
+}
+
+// Why a conversation appears in a QA queue (sampling / risk).
+enum QAEvaluationSelectionReason {
+  QA_EVALUATION_SELECTION_REASON_UNSPECIFIED = 0;
+  QA_EVALUATION_SELECTION_REASON_RANDOM      = 1;
+  QA_EVALUATION_SELECTION_REASON_RISK        = 2;  // e.g. CSAT dissatisfied/neutral
+  QA_EVALUATION_SELECTION_REASON_ASSIGNED    = 3;
+}
+
+enum QAEvaluationAppealStatus {
+  QA_EVALUATION_APPEAL_STATUS_UNSPECIFIED = 0;
+  QA_EVALUATION_APPEAL_STATUS_PENDING     = 1;
+  QA_EVALUATION_APPEAL_STATUS_ACCEPTED    = 2;
+  QA_EVALUATION_APPEAL_STATUS_REJECTED    = 3;
+}
+
+// Time-axis for QA list/ranking filters (default keeps legacy activity window).
+enum QAEvaluationWindowBy {
+  QA_EVALUATION_WINDOW_BY_UNSPECIFIED   = 0;  // same as ACTIVITY (legacy)
+  QA_EVALUATION_WINDOW_BY_ACTIVITY      = 1;  // conversations.last_message_at
+  QA_EVALUATION_WINDOW_BY_EVALUATED_AT  = 2;  // evaluations.evaluated_at — aligns List with Ranking
+}
+
+// Pinned chat message used as QA scoring evidence (JSON on ConversationQAEvaluation.evidence_pins).
+message QAEvaluationEvidencePin {
+  int64 message_id                 = 1;
+  QAEvaluationCriterion criterion  = 2;
+  string quote                     = 3;
 }
 
 // Status of a Telegram Business CS connector account.
@@ -176,4 +213,40 @@ enum TelegramCsAccountStatus {
   TELEGRAM_CS_ACCOUNT_STATUS_ACTIVE                = 2;
   TELEGRAM_CS_ACCOUNT_STATUS_INACTIVE              = 3;
   TELEGRAM_CS_ACCOUNT_STATUS_CONNECTION_LOST       = 4;
+}
+
+// ChatGroup message attribution (staff myid vs Telegram guest bridge vs system).
+enum ChatGroupMessageSenderKind {
+  CHAT_GROUP_MESSAGE_SENDER_KIND_UNSPECIFIED     = 0;
+  CHAT_GROUP_MESSAGE_SENDER_KIND_USER            = 1;
+  CHAT_GROUP_MESSAGE_SENDER_KIND_TELEGRAM_GUEST  = 2;
+  // Automated notices (e.g. keyword → share card); sender_user_id = 0, display "Hệ thống".
+  CHAT_GROUP_MESSAGE_SENDER_KIND_SYSTEM          = 3;
+}
+
+enum ChatGroupTelegramBotStatus {
+  CHAT_GROUP_TELEGRAM_BOT_STATUS_UNSPECIFIED    = 0;
+  CHAT_GROUP_TELEGRAM_BOT_STATUS_ACTIVE         = 1;
+  CHAT_GROUP_TELEGRAM_BOT_STATUS_INACTIVE       = 2;
+  CHAT_GROUP_TELEGRAM_BOT_STATUS_WEBHOOK_ERROR  = 3;
+}
+
+enum ChatGroupTelegramLinkStatus {
+  CHAT_GROUP_TELEGRAM_LINK_STATUS_UNSPECIFIED = 0;
+  CHAT_GROUP_TELEGRAM_LINK_STATUS_ACTIVE      = 1;
+  CHAT_GROUP_TELEGRAM_LINK_STATUS_INACTIVE    = 2;
+}
+
+enum ChatGroupTelegramMessageDirection {
+  CHAT_GROUP_TELEGRAM_MESSAGE_DIRECTION_UNSPECIFIED = 0;
+  CHAT_GROUP_TELEGRAM_MESSAGE_DIRECTION_INBOUND     = 1;
+  CHAT_GROUP_TELEGRAM_MESSAGE_DIRECTION_OUTBOUND    = 2;
+}
+
+// Cached result of fetching a Telegram guest's profile photo for the ChatGroup bridge.
+enum ChatGroupTelegramGuestAvatarStatus {
+  CHAT_GROUP_TELEGRAM_GUEST_AVATAR_STATUS_UNSPECIFIED = 0;
+  CHAT_GROUP_TELEGRAM_GUEST_AVATAR_STATUS_OK          = 1;
+  CHAT_GROUP_TELEGRAM_GUEST_AVATAR_STATUS_EMPTY       = 2;
+  CHAT_GROUP_TELEGRAM_GUEST_AVATAR_STATUS_ERROR       = 3;
 }
