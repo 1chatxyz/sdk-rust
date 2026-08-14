@@ -7,7 +7,7 @@ use crate::pb::genjutsu::myconversation::model::v1::ChatGroupMessageSenderKind a
 /// Attribution kind for a chat group message sender.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SenderKind {
-    /// Proto unspecified / unknown.
+    /// Proto unspecified/unknown.
     Unspecified,
     /// Tenant staff (myid user).
     User,

@@ -19,6 +19,8 @@ target
 # OS / editor
 .DS_Store
 .idea/
+.cursor/mcp.json
+.cursor/settings.json
 
 # Local-only references (do not commit or push)
 reference/
