@@ -181,7 +181,7 @@ while let Some(event) = dms.next().await {
 
 ## GitHub identity
 
-Use the **1chatxyz** account only (not personal accounts such as `tiennv147`):
+Use the **1chatxyz** account only:
 
 - Credentials file: `~/.git-credentials-1chatxyz`
 - Local: `credential.helper=store --file=$HOME/.git-credentials-1chatxyz`, `user.name=1chatxyz`
