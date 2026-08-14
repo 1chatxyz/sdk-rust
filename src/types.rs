@@ -66,6 +66,8 @@ pub struct IncomingMessage {
     pub reply_to_message_id: i64,
     /// Thread root id when this is a thread reply; 0 for top-level.
     pub message_thread_root_id: i64,
+    /// Group topic id (`0` = main channel).
+    pub topic_id: i64,
     /// True when the sender targeted `@all` (staff mentions may be omitted on the wire).
     pub mentions_all: bool,
     /// True when the server hydrates an anonymous sender (staff id hidden).

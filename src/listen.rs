@@ -1142,6 +1142,7 @@ pub(crate) fn map_group_message(
         voices: msg.voices,
         reply_to_message_id: msg.reply_to.as_ref().map(|m| m.id).unwrap_or(0),
         message_thread_root_id: msg.message_thread_root_id,
+        topic_id: msg.topic_id,
         mentions_all: msg.mentions_all,
         sender_anonymous: msg.sender_anonymous,
         also_sent_to_timeline: msg.also_sent_to_timeline,
@@ -1225,5 +1226,14 @@ mod tests {
         let mut opts = SubscribeOptions::new();
         opts.require_mention = true;
         assert!(map_group_message(msg, &client, &opts).is_some());
+    }
+
+    #[test]
+    fn maps_topic_id() {
+        let client = client_with_bot("1", "bot");
+        let mut msg = base_msg();
+        msg.topic_id = 42;
+        let mapped = map_group_message(msg, &client, &SubscribeOptions::new()).unwrap();
+        assert_eq!(mapped.topic_id, 42);
     }
 }
